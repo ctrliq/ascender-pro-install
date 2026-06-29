@@ -1,12 +1,44 @@
+- name: Set kubeconfig path for tkgi platform
+  ansible.builtin.set_fact:
+    kubeconfig_path: "{{ TKGI_KUBECONFIG_PATH | default(lookup('env', 'KUBECONFIG'), true) | default(lookup('env', 'HOME') + '/.kube/config', true) }}"
+
+- name: Expand tilde in kubeconfig path
+  ansible.builtin.set_fact:
+    kubeconfig_path: "{{ kubeconfig_path | regex_replace('^~', lookup('env', 'HOME')) }}"
+
+- name: Get current kubeconfig context for tkgi platform
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - config
+      - current-context
+      - --kubeconfig={{ kubeconfig_path }}
+  register: current_context
+  changed_when: false
+
+- name: Set kubeconfig context for tkgi platform
+  ansible.builtin.set_fact:
+    tkgi_k8s_context: "{{ TKGI_K8S_CONTEXT | default(current_context.stdout, true) }}"
+
 - name: Retrieve the current time in order to timestamp files
   ansible.builtin.setup:
     gather_subset:
      - date_time
 
+- name: Create Namespace
+  kubernetes.core.k8s:
+    name: "{{ LEDGER_NAMESPACE }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+    context: "{{ tkgi_k8s_context }}"
+    kubeconfig: "{{ kubeconfig_path }}"
+    verify_ssl: false
+
 - name: Generate manifest to install Ledger k8s object with timestamp attached, for purposes of deletion later
   ansible.builtin.template:
-    src: ledger_deployment_dkp.yaml
-    dest: "{{ tmp_dir }}/ledger_deployment_dkp.yaml.{{ ansible_date_time.iso8601_basic_short }}"
+    src: ledger_deployment_tkgi.yaml
+    dest: "{{ tmp_dir }}/ledger_deployment_tkgi.yaml.{{ ansible_date_time.iso8601_basic_short }}"
 
 - name: Generate manifest for the Ledger registry secret with timestamp, for purposes of deletion later
   when: LEDGER_REGISTRY.BASE is defined
@@ -20,13 +52,18 @@
     state: present
     namespace: "{{ LEDGER_NAMESPACE }}"
     definition: "{{ lookup('template', 'templates/ledger_deployment_registry_secret.yaml') | from_yaml }}"
+    context: "{{ tkgi_k8s_context }}"
+    kubeconfig: "{{ kubeconfig_path }}"
     verify_ssl: false
 
 - name: "Apply ledger manifest for {{ k8s_platform }}"
   kubernetes.core.k8s:
     state: present
     namespace: "{{ LEDGER_NAMESPACE }}"
-    definition: "{{ lookup('template', 'templates/ledger_deployment_dkp.yaml') | from_yaml_all }}"
+    definition: "{{ lookup('template', 'templates/ledger_deployment_tkgi.yaml') | from_yaml_all }}"
+    context: "{{ tkgi_k8s_context }}"
+    kubeconfig: "{{ kubeconfig_path }}"
+    verify_ssl: false
   register: ledger_apply_result
 
 - name: Wait for Ledger web Deployment to complete setting up
@@ -37,6 +74,9 @@
     namespace: "{{ LEDGER_NAMESPACE }}"
     wait_sleep: 10
     wait_timeout: 360
+    context: "{{ tkgi_k8s_context }}"
+    kubeconfig: "{{ kubeconfig_path }}"
+    verify_ssl: false
 
 - name: Wait for Ledger parser Service to be up
   kubernetes.core.k8s_info:
@@ -46,8 +86,11 @@
     namespace: "{{ LEDGER_NAMESPACE }}"
     wait_sleep: 10
     wait_timeout: 360
+    context: "{{ tkgi_k8s_context }}"
+    kubeconfig: "{{ kubeconfig_path }}"
+    verify_ssl: false
   register: parser_svc
-      
+
 - ansible.builtin.debug:
     var: parser_svc.resources[0].spec.ports[0].port
 
@@ -66,6 +109,8 @@
               kubectl.kubernetes.io/restartedAt: "{{ ansible_date_time.iso8601 }}"
     merge_type:
       - strategic-merge
+    context: "{{ tkgi_k8s_context }}"
+    kubeconfig: "{{ kubeconfig_path }}"
     verify_ssl: false
   loop:
     - db
