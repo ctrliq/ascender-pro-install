@@ -21,18 +21,6 @@
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'PROXY_HOSTNAME': proxy_hostname_value}, recursive=True) }}"
 
-    - name: "The OCI container image for the Ascender Galaxy Proxy"
-      prompt:
-        prompt: "Enter your selection [{{ config_data.PROXY_IMAGE | default('depot.ciq.com/ascender-pro/ascender-galaxy-proxy-images/ascender-galaxy-proxy') }}]: "
-      register: config_vars_proxy_image
-
-    - name: Save the proxy image
-      vars:
-        proxy_image_default: "{{ config_data.PROXY_IMAGE | default('depot.ciq.com/ascender-pro/ascender-galaxy-proxy-images/ascender-galaxy-proxy') }}"
-        proxy_image_value: "{{ config_vars_proxy_image.user_input | trim | default(proxy_image_default, true) }}"
-      ansible.builtin.set_fact:
-        config_data: "{{ config_data | combine({'PROXY_IMAGE': proxy_image_value}, recursive=True) }}"
-
     - name: "The image tag indicating the version of the Ascender Galaxy Proxy"
       prompt:
         prompt: "Enter your selection [{{ config_data.PROXY_VERSION | default('latest') }}]: "
