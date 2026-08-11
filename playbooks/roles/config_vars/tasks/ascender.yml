@@ -95,17 +95,15 @@
   ansible.builtin.set_fact:
     config_data: "{{ config_data | combine({'ASCENDER_VERSION': ascender_version_value}, recursive=True) }}"
 
-- name: "The version of the AWX Operator used to install Ascender"
+- name: "The version of the AWX Operator used to install Ascender (leave blank to track the installer's default)"
   prompt:
-    prompt: "Enter your selection [{{ config_data.ASCENDER_OPERATOR_VERSION }}]: "
+    prompt: "Enter your selection [{{ config_data.ASCENDER_OPERATOR_VERSION | default('25.5.1', true) }}]: "
   register: config_vars_ascender_operator_version
 
-- name: Save the Ascender operator version
-  vars:
-    ascender_operator_version_default: "{{ config_data.ASCENDER_OPERATOR_VERSION }}"
-    ascender_operator_version_value: "{{ config_vars_ascender_operator_version.user_input | trim | default(ascender_operator_version_default, true) }}"
+- name: Save the Ascender operator version, only if explicitly overridden
+  when: (config_vars_ascender_operator_version.user_input | default('', true) | trim) != ''
   ansible.builtin.set_fact:
-    config_data: "{{ config_data | combine({'ASCENDER_OPERATOR_VERSION': ascender_operator_version_value}, recursive=True) }}"
+    config_data: "{{ config_data | combine({'ASCENDER_OPERATOR_VERSION': (config_vars_ascender_operator_version.user_input | trim)}, recursive=True) }}"
 
 - name: Prompt whether to keep the secrets required to encrypt within Ascender
   ansible.builtin.include_tasks: menu_choice.yml
