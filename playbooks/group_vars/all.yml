@@ -346,6 +346,58 @@ REGISTRY_CONFIG:
 REGISTRY_IMAGE: depot.ciq.com/ascender-pro/ascender-registry-images/ascender-registry
 REGISTRY_VERSION: "1.0.0"
 
+# ---Reaqt install variables---
+
+# Determines whether or not Reaqt will be installed
+REAQT_INSTALL: false
+
+# DNS resolvable hostname for Reaqt service. This is required for install.
+REAQT_HOSTNAME: reaqt.example.com
+
+# The Kubernetes namespace in which Reaqt objects will live
+REAQT_NAMESPACE: reaqt
+
+# The OCI container image for the Reaqt web app
+REAQT_WEB_IMAGE: depot.ciq.com/ascender-pro/ascender-reaqt-images/ascender-reaqt/web
+
+# The number of reaqt web pods - this is good to ensure high availability
+reaqt_web_replicas: 1
+
+# The OCI container image for the Reaqt Listener
+REAQT_LISTENER_IMAGE: depot.ciq.com/ascender-pro/ascender-reaqt-images/ascender-reaqt/listener
+
+# The OCI container image for the Reaqt Database
+REAQT_DB_IMAGE: depot.ciq.com/ascender-pro/ascender-reaqt-images/ascender-reaqt/db
+
+# The image tag indicating the version of Reaqt you wish to install
+REAQT_VERSION: latest
+
+# Unique, stable identifier the listener uses to register itself
+REAQT_LISTENER_UID: listener-primary
+
+# Human-readable name for the listener
+REAQT_LISTENER_NAME: "Primary Listener"
+
+# Shared bearer token the listener presents to the web app's /api/listener API
+REAQT_LISTENER_API_TOKEN: "changeme-listener-api-token"
+
+# Session cookie encryption key. Leave blank to let the web app generate and persist its own.
+REAQT_SESSION_KEY: ""
+
+# Encrypts stored provider credentials at rest. Leave blank to let the web app generate and
+# persist its own; must be set explicitly if the listener runs on a different host than the web app.
+REAQT_SECRET_KEY: ""
+
+# Password for the Reaqt database user
+REAQT_DB_PASSWORD: "mydbpassword"
+
+# Root password for the Reaqt database (only used when deploying the built-in database)
+REAQT_DB_ROOT_PASSWORD: "mydbrootpassword"
+
+# # Used to increase the default size of the MariaDB Storage PVC.
+# # !!! Do not set or change this for an existing install !!!
+REAQT_PVC_SIZE_GB: 10
+
 required_collections:
   - name: amazon.aws
     version: "6.5.0"

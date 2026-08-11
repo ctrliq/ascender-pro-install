@@ -377,6 +377,72 @@ REGISTRY_TLS_CRT_PATH: "~/ascender.crt"
     # TLS Private Key file, required when deploying HTTPS in K3s
 REGISTRY_TLS_KEY_PATH: "~/ascender.key"
 
+    # ---Reaqt install variables---
+
+    # Determines whether or not Reaqt will be installed
+REAQT_INSTALL: false
+
+    # DNS resolvable hostname for Reaqt service. This is required for install.
+REAQT_HOSTNAME: reaqt.example.com
+
+    # The Kubernetes namespace in which Reaqt objects will live
+REAQT_NAMESPACE: reaqt
+
+    # The OCI container image for the Reaqt web app
+REAQT_WEB_IMAGE: depot.ciq.com/ascender-pro/ascender-reaqt-images/ascender-reaqt/web
+
+    # The number of reaqt web pods - this is good to ensure high availability
+reaqt_web_replicas: 1
+
+    # The OCI container image for the Reaqt Listener
+REAQT_LISTENER_IMAGE: depot.ciq.com/ascender-pro/ascender-reaqt-images/ascender-reaqt/listener
+
+    # The OCI container image for the Reaqt Database
+REAQT_DB_IMAGE: depot.ciq.com/ascender-pro/ascender-reaqt-images/ascender-reaqt/db
+
+    # The image tag indicating the version of Reaqt you wish to install
+REAQT_VERSION: latest
+
+    # Unique, stable identifier the listener uses to register itself.
+    # Each additional listener deployment needs its own unique value.
+REAQT_LISTENER_UID: listener-primary
+
+    # Human-readable name for the listener
+REAQT_LISTENER_NAME: "Primary Listener"
+
+    # Shared bearer token the listener presents to the web app's /api/listener API.
+    # Must be a strong, non-default value in production.
+REAQT_LISTENER_API_TOKEN: "changeme-listener-api-token"
+
+    # Session cookie encryption key (hex-encoded 32-byte/64 hex character value).
+    # Leave blank to let the web app generate and persist its own. Generate with: openssl rand -hex 32
+REAQT_SESSION_KEY: ""
+
+    # Encrypts stored provider credentials at rest (hex-encoded 32-byte/64 hex character value).
+    # Leave blank to let the web app generate and persist its own, but it MUST be set explicitly
+    # if the listener runs on a different host than the web app. Generate with: openssl rand -hex 32
+REAQT_SECRET_KEY: ""
+
+    # Uncomment these to use an external database for Reaqt
+#REAQT_DB_HOST: ascender-reaqt-db
+#REAQT_DB_PORT: "3306"
+#REAQT_DB_NAME: "reaqt"
+#REAQT_DB_USERNAME: "ascender"
+
+    # Size of the Persistent Volume Claim for Reaqt's database in GB
+    # Only uncomment on new installs or with storage classes that support volume expansion
+#REAQT_PVC_SIZE_GB: 10
+    # Storage Class for the Persistent Volume Claim for Reaqt's database
+    # Only uncomment to set a specific storage class on new installs
+    # Leaving blank will use the default storage class of the cluster
+#REAQT_PVC_STORAGE_CLASS: ""
+
+    # Password for the Reaqt database user
+REAQT_DB_PASSWORD: "mydbpassword"
+
+    # Root password for the Reaqt database (only used when deploying the built-in database)
+REAQT_DB_ROOT_PASSWORD: "mydbrootpassword"
+
     # Storage Class for the Persistent Volume Claims used by the Ascender Registry
     # Only uncomment to set a specific storage class on new installs
     # Leaving blank will use the default storage class of the cluster

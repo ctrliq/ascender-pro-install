@@ -1,0 +1,101 @@
+- name: Retrieve the current time in order to timestamp files
+  ansible.builtin.setup:
+    gather_subset:
+     - date_time
+
+- name: Generate manifest to install reaqt k8s object with timestamp attached, for purposes of deletion later
+  ansible.builtin.template:
+    src: reaqt_deployment_dkp.yml
+    dest: "{{ tmp_dir }}/reaqt_deployment_dkp.yml.{{ ansible_date_time.iso8601_basic_short }}"
+
+- name: Generate manifest for the Reaqt image pull secret with timestamp, for purposes of deletion later
+  when: DEPOT_REGISTRY.BASE is defined
+  ansible.builtin.template:
+    src: reaqt_deployment_registry_secret.yml
+    dest: "{{ tmp_dir }}/reaqt_deployment_registry_secret.yml.{{ ansible_date_time.iso8601_basic_short }}"
+
+- name: Apply the Reaqt image pull secret (if needed) manifest for {{ k8s_platform }}
+  when: DEPOT_REGISTRY.BASE is defined
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ REAQT_NAMESPACE }}"
+    definition: "{{ lookup('template', 'templates/reaqt_deployment_registry_secret.yml') | from_yaml }}"
+    verify_ssl: false
+
+- name: "Apply reaqt manifest for {{ k8s_platform }}"
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ REAQT_NAMESPACE }}"
+    definition: "{{ lookup('template', 'templates/reaqt_deployment_dkp.yml') | from_yaml_all }}"
+    verify_ssl: false
+  register: reaqt_apply_result
+
+- name: Wait for the Reaqt database Deployment to complete setting up
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    wait: yes
+    name: ascender-reaqt-db
+    namespace: "{{ REAQT_NAMESPACE }}"
+    wait_sleep: 10
+    wait_timeout: 360
+    verify_ssl: false
+  when: REAQT_DB_HOST == "ascender-reaqt-db"
+
+- name: Wait for the Reaqt listener Deployment to complete setting up
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    wait: yes
+    name: ascender-reaqt-listener
+    namespace: "{{ REAQT_NAMESPACE }}"
+    wait_sleep: 10
+    wait_timeout: 360
+    verify_ssl: false
+
+- name: Wait for the Reaqt web Deployment to complete setting up
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    wait: yes
+    name: ascender-reaqt-web
+    namespace: "{{ REAQT_NAMESPACE }}"
+    wait_sleep: 10
+    wait_timeout: 360
+    verify_ssl: false
+
+- name: Restart Reaqt deployments to pull latest image
+  kubernetes.core.k8s:
+    state: present
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ item }}"
+    namespace: "{{ REAQT_NAMESPACE }}"
+    definition:
+      spec:
+        template:
+          metadata:
+            annotations:
+              kubectl.kubernetes.io/restartedAt: "{{ ansible_date_time.iso8601 }}"
+    merge_type:
+      - strategic-merge
+    verify_ssl: false
+  loop: "{{ ['ascender-reaqt-listener', 'ascender-reaqt-web'] + (['ascender-reaqt-db'] if REAQT_DB_HOST == 'ascender-reaqt-db' else []) }}"
+  when:
+    - REAQT_VERSION | lower == "latest"
+    - not reaqt_apply_result.changed
+
+- ansible.builtin.debug:
+    msg: "The Reaqt endpoint is {{ k8s_lb_protocol }}://{{ REAQT_HOSTNAME }}"
+
+- name: Wait until Reaqt endpoint is Up
+  ansible.builtin.uri:
+    url: "{{ k8s_lb_protocol }}://{{ REAQT_HOSTNAME }}/login"
+    return_content: yes
+    validate_certs: false
+    status_code:
+      - 200
+  until: uri_output.status == 200
+  retries: 200
+  delay: 10
+  register: uri_output
+
+- ansible.builtin.debug:
+    msg: "Reaqt endpoint is up"

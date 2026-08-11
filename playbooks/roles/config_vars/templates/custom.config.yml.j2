@@ -5,6 +5,11 @@
 	| regex_replace('(?m)^(ASCENDER_PGSQL_PWD: ).*$', '\\1' ~ (config_data.ASCENDER_PGSQL_PWD | default('', true) | to_json))
 	| regex_replace('(?m)^(LEDGER_ADMIN_PASSWORD: ).*$', '\\1' ~ (config_data.LEDGER_ADMIN_PASSWORD | default('', true) | to_json))
 	| regex_replace('(?m)^(LEDGER_DB_PASSWORD: ).*$', '\\1' ~ (config_data.LEDGER_DB_PASSWORD | default('', true) | to_json))
+	| regex_replace('(?m)^(REAQT_LISTENER_API_TOKEN: ).*$', '\\1' ~ (config_data.REAQT_LISTENER_API_TOKEN | default('', true) | to_json))
+	| regex_replace('(?m)^(REAQT_SESSION_KEY: ).*$', '\\1' ~ (config_data.REAQT_SESSION_KEY | default('', true) | to_json))
+	| regex_replace('(?m)^(REAQT_SECRET_KEY: ).*$', '\\1' ~ (config_data.REAQT_SECRET_KEY | default('', true) | to_json))
+	| regex_replace('(?m)^(REAQT_DB_PASSWORD: ).*$', '\\1' ~ (config_data.REAQT_DB_PASSWORD | default('', true) | to_json))
+	| regex_replace('(?m)^(REAQT_DB_ROOT_PASSWORD: ).*$', '\\1' ~ (config_data.REAQT_DB_ROOT_PASSWORD | default('', true) | to_json))
 %}
 {% if config_data.DEPOT_REGISTRY is defined and config_data.DEPOT_REGISTRY.PASSWORD is defined %}
 {% set rendered_config = rendered_config | regex_replace('(?m)^(  PASSWORD: ).*$', '\\1' ~ (config_data.DEPOT_REGISTRY.PASSWORD | to_json)) %}

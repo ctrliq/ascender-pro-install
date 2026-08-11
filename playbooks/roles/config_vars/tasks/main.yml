@@ -27,6 +27,9 @@
 - name: Collect Registry configuration
   ansible.builtin.include_tasks: registry.yml
 
+- name: Collect Reaqt configuration
+  ansible.builtin.include_tasks: reaqt.yml
+
 - name: Render custom.config.yml
   ansible.builtin.template:
     src: custom.config.yml.j2

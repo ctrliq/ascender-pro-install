@@ -1,0 +1,198 @@
+- name: Prompt whether to install Reaqt
+  ansible.builtin.include_tasks: menu_choice.yml
+  vars:
+    config_vars_menu_prompt: "Boolean indicating whether to install Reaqt:"
+    config_vars_menu_options_display: "{{ config_vars_boolean_options_display }}"
+    config_vars_menu_options_value: "{{ config_vars_boolean_options_value }}"
+    config_vars_menu_target: REAQT_INSTALL
+    config_vars_menu_default_display: "{{ config_data.REAQT_INSTALL | bool | ternary('true', 'false') }}"
+    config_vars_menu_default_value: "{{ config_data.REAQT_INSTALL | bool }}"
+
+- block:
+    - name: "DNS resolvable hostname for Reaqt service"
+      prompt:
+        prompt: "Enter your selection [{{ config_data.REAQT_HOSTNAME }}]: "
+      register: config_vars_reaqt_hostname
+
+    - name: Save the Reaqt hostname
+      vars:
+        reaqt_hostname_default: "{{ config_data.REAQT_HOSTNAME }}"
+        reaqt_hostname_value: "{{ config_vars_reaqt_hostname.user_input | trim | default(reaqt_hostname_default, true) }}"
+      ansible.builtin.set_fact:
+        config_data: "{{ config_data | combine({'REAQT_HOSTNAME': reaqt_hostname_value}, recursive=True) }}"
+
+    - name: "Number of replicas for the Reaqt web container"
+      prompt:
+        prompt: "Enter your selection [{{ config_data.reaqt_web_replicas }}]: "
+      register: config_vars_reaqt_web_replicas
+
+    - name: Save the Reaqt web replicas
+      vars:
+        reaqt_web_replicas_default: "{{ config_data.reaqt_web_replicas }}"
+        reaqt_web_replicas_value: "{{ config_vars_reaqt_web_replicas.user_input | trim | default(reaqt_web_replicas_default, true) | int }}"
+      ansible.builtin.set_fact:
+        config_data: "{{ config_data | combine({'reaqt_web_replicas': reaqt_web_replicas_value}, recursive=True) }}"
+
+    - name: "The image tag indicating the version of Reaqt you wish to install"
+      prompt:
+        prompt: "Enter your selection [{{ config_data.REAQT_VERSION }}]: "
+      register: config_vars_reaqt_version
+
+    - name: Save the Reaqt version
+      vars:
+        reaqt_version_default: "{{ config_data.REAQT_VERSION }}"
+        reaqt_version_value: "{{ config_vars_reaqt_version.user_input | trim | default(reaqt_version_default, true) }}"
+      ansible.builtin.set_fact:
+        config_data: "{{ config_data | combine({'REAQT_VERSION': reaqt_version_value}, recursive=True) }}"
+
+    - name: "The Kubernetes namespace in which Reaqt objects will live"
+      prompt:
+        prompt: "Enter your selection [{{ config_data.REAQT_NAMESPACE }}]: "
+      register: config_vars_reaqt_namespace
+
+    - name: Save the Reaqt namespace
+      vars:
+        reaqt_namespace_default: "{{ config_data.REAQT_NAMESPACE }}"
+        reaqt_namespace_value: "{{ config_vars_reaqt_namespace.user_input | trim | default(reaqt_namespace_default, true) }}"
+      ansible.builtin.set_fact:
+        config_data: "{{ config_data | combine({'REAQT_NAMESPACE': reaqt_namespace_value}, recursive=True) }}"
+
+    - name: "Unique, stable identifier the Reaqt listener uses to register itself"
+      prompt:
+        prompt: "Enter your selection [{{ config_data.REAQT_LISTENER_UID }}]: "
+      register: config_vars_reaqt_listener_uid
+
+    - name: Save the Reaqt listener UID
+      vars:
+        reaqt_listener_uid_default: "{{ config_data.REAQT_LISTENER_UID }}"
+        reaqt_listener_uid_value: "{{ config_vars_reaqt_listener_uid.user_input | trim | default(reaqt_listener_uid_default, true) }}"
+      ansible.builtin.set_fact:
+        config_data: "{{ config_data | combine({'REAQT_LISTENER_UID': reaqt_listener_uid_value}, recursive=True) }}"
+
+    - name: "Human-readable name for the Reaqt listener"
+      prompt:
+        prompt: "Enter your selection [{{ config_data.REAQT_LISTENER_NAME }}]: "
+      register: config_vars_reaqt_listener_name
+
+    - name: Save the Reaqt listener name
+      vars:
+        reaqt_listener_name_default: "{{ config_data.REAQT_LISTENER_NAME }}"
+        reaqt_listener_name_value: "{{ config_vars_reaqt_listener_name.user_input | trim | default(reaqt_listener_name_default, true) }}"
+      ansible.builtin.set_fact:
+        config_data: "{{ config_data | combine({'REAQT_LISTENER_NAME': reaqt_listener_name_value}, recursive=True) }}"
+
+    - name: "Shared bearer token the Reaqt listener presents to the web app's API"
+      prompt:
+        prompt: "Enter your selection [hidden]: "
+        echo: false
+      register: config_vars_reaqt_listener_api_token
+      until: >-
+        '"' not in (
+          (config_vars_reaqt_listener_api_token.user_input | default('', true) | trim)
+          if (config_vars_reaqt_listener_api_token.user_input | default('', true) | trim) != ''
+          else (config_data.REAQT_LISTENER_API_TOKEN | default(''))
+        )
+      retries: "{{ config_vars_prompt_retries }}"
+      delay: "{{ config_vars_prompt_delay }}"
+      no_log: true
+
+    - name: Save the Reaqt listener API token
+      vars:
+        reaqt_listener_api_token_default: "{{ config_data.REAQT_LISTENER_API_TOKEN }}"
+        reaqt_listener_api_token_value: "{{ config_vars_reaqt_listener_api_token.user_input | trim | default(reaqt_listener_api_token_default, true) }}"
+      ansible.builtin.set_fact:
+        config_data: "{{ config_data | combine({'REAQT_LISTENER_API_TOKEN': reaqt_listener_api_token_value}, recursive=True) }}"
+      no_log: true
+
+    - name: "Session cookie encryption key for Reaqt (leave blank to let the app manage its own)"
+      prompt:
+        prompt: "Enter your selection [hidden]: "
+        echo: false
+      register: config_vars_reaqt_session_key
+      until: >-
+        '"' not in (
+          (config_vars_reaqt_session_key.user_input | default('', true) | trim)
+          if (config_vars_reaqt_session_key.user_input | default('', true) | trim) != ''
+          else (config_data.REAQT_SESSION_KEY | default(''))
+        )
+      retries: "{{ config_vars_prompt_retries }}"
+      delay: "{{ config_vars_prompt_delay }}"
+      no_log: true
+
+    - name: Save the Reaqt session key
+      vars:
+        reaqt_session_key_default: "{{ config_data.REAQT_SESSION_KEY | default('') }}"
+        reaqt_session_key_value: "{{ config_vars_reaqt_session_key.user_input | trim | default(reaqt_session_key_default, true) }}"
+      ansible.builtin.set_fact:
+        config_data: "{{ config_data | combine({'REAQT_SESSION_KEY': reaqt_session_key_value}, recursive=True) }}"
+      no_log: true
+
+    - name: "Encryption key Reaqt uses to protect stored provider credentials (leave blank to let the app manage its own)"
+      prompt:
+        prompt: "Enter your selection [hidden]: "
+        echo: false
+      register: config_vars_reaqt_secret_key
+      until: >-
+        '"' not in (
+          (config_vars_reaqt_secret_key.user_input | default('', true) | trim)
+          if (config_vars_reaqt_secret_key.user_input | default('', true) | trim) != ''
+          else (config_data.REAQT_SECRET_KEY | default(''))
+        )
+      retries: "{{ config_vars_prompt_retries }}"
+      delay: "{{ config_vars_prompt_delay }}"
+      no_log: true
+
+    - name: Save the Reaqt secret key
+      vars:
+        reaqt_secret_key_default: "{{ config_data.REAQT_SECRET_KEY | default('') }}"
+        reaqt_secret_key_value: "{{ config_vars_reaqt_secret_key.user_input | trim | default(reaqt_secret_key_default, true) }}"
+      ansible.builtin.set_fact:
+        config_data: "{{ config_data | combine({'REAQT_SECRET_KEY': reaqt_secret_key_value}, recursive=True) }}"
+      no_log: true
+
+    - name: "Password for the Reaqt database user"
+      prompt:
+        prompt: "Enter your selection [hidden]: "
+        echo: false
+      register: config_vars_reaqt_db_password
+      until: >-
+        '"' not in (
+          (config_vars_reaqt_db_password.user_input | default('', true) | trim)
+          if (config_vars_reaqt_db_password.user_input | default('', true) | trim) != ''
+          else (config_data.REAQT_DB_PASSWORD | default('mydbpassword'))
+        )
+      retries: "{{ config_vars_prompt_retries }}"
+      delay: "{{ config_vars_prompt_delay }}"
+      no_log: true
+
+    - name: Save the Reaqt database password
+      vars:
+        reaqt_db_password_default: "{{ config_data.REAQT_DB_PASSWORD }}"
+        reaqt_db_password_value: "{{ config_vars_reaqt_db_password.user_input | trim | default(reaqt_db_password_default, true) }}"
+      ansible.builtin.set_fact:
+        config_data: "{{ config_data | combine({'REAQT_DB_PASSWORD': reaqt_db_password_value}, recursive=True) }}"
+      no_log: true
+
+    - name: "Root password for the Reaqt database (only used when deploying the built-in database)"
+      prompt:
+        prompt: "Enter your selection [hidden]: "
+        echo: false
+      register: config_vars_reaqt_db_root_password
+      until: >-
+        '"' not in (
+          (config_vars_reaqt_db_root_password.user_input | default('', true) | trim)
+          if (config_vars_reaqt_db_root_password.user_input | default('', true) | trim) != ''
+          else (config_data.REAQT_DB_ROOT_PASSWORD | default('mydbrootpassword'))
+        )
+      retries: "{{ config_vars_prompt_retries }}"
+      delay: "{{ config_vars_prompt_delay }}"
+      no_log: true
+
+    - name: Save the Reaqt database root password
+      vars:
+        reaqt_db_root_password_default: "{{ config_data.REAQT_DB_ROOT_PASSWORD }}"
+        reaqt_db_root_password_value: "{{ config_vars_reaqt_db_root_password.user_input | trim | default(reaqt_db_root_password_default, true) }}"
+      ansible.builtin.set_fact:
+        config_data: "{{ config_data | combine({'REAQT_DB_ROOT_PASSWORD': reaqt_db_root_password_value}, recursive=True) }}"
+      no_log: true
+  when: config_data.REAQT_INSTALL | bool
