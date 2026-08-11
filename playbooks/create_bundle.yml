@@ -11,15 +11,15 @@
         tag: "{{ ASCENDER_VERSION }}"
         type: ascender
       - name: ledger-web
-        path: "{{ LEDGER_WEB_IMAGE | default('ghcr.io/ctrliq/ascender-ledger/ledger-web') }}"
+        path: "{{ LEDGER_WEB_IMAGE | default('depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-web') }}"
         tag: "{{ LEDGER_VERSION | default('latest') }}"
         type: ledger
       - name: ledger-parser
-        path: "{{ LEDGER_PARSER_IMAGE | default('ghcr.io/ctrliq/ascender-ledger/ledger-parser') }}"
+        path: "{{ LEDGER_PARSER_IMAGE | default('depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-parser') }}"
         tag: "{{ LEDGER_VERSION | default('latest') }}"
         type: ledger
       - name: ledger-db
-        path: "{{ LEDGER_DB_IMAGE | default('ghcr.io/ctrliq/ascender-ledger/ledger-db') }}"
+        path: "{{ LEDGER_DB_IMAGE | default('depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-db') }}"
         tag: "{{ LEDGER_VERSION | default('latest') }}"
         type: ledger
       - name: ascender-operator
@@ -227,12 +227,12 @@
 
         - name: Log into CIQ registry
           community.docker.docker_login:
-            registry_url: "{{ LEDGER_REGISTRY.BASE }}"
-            username: "{{ LEDGER_REGISTRY.USERNAME }}"
-            password: "{{ LEDGER_REGISTRY.PASSWORD }}"
+            registry_url: "{{ DEPOT_REGISTRY.BASE }}"
+            username: "{{ DEPOT_REGISTRY.USERNAME }}"
+            password: "{{ DEPOT_REGISTRY.PASSWORD }}"
             reauthorize: true
           when: 
-            - LEDGER_REGISTRY.BASE is defined
+            - DEPOT_REGISTRY.BASE is defined
             - LEDGER_INSTALL == true
 
         - name: Pull images and create archives

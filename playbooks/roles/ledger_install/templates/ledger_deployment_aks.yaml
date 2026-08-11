@@ -182,7 +182,7 @@ spec:
         - name: admin-password
           value: /run/secrets/admin-password
 {% if k8s_container_registry %}
-        image: {{ k8s_container_registry | default("ghcr.io/ctrliq/ascender-ledger", true)  ~ "/ledger-db" }}:{{ LEDGER_VERSION }}
+        image: {{ k8s_container_registry | default("depot.ciq.com/ascender-pro/ascender-ledger-pro-images", true)  ~ "/ledger-db" }}:{{ LEDGER_VERSION }}
 {% else %}
         image: {{ LEDGER_DB_IMAGE }}:{{ LEDGER_VERSION }}
 {% endif %}
@@ -201,7 +201,7 @@ spec:
           name: db-settings
         - mountPath: /var/lib/mysql
           name: mysql-data
-{% if LEDGER_REGISTRY is defined %}
+{% if DEPOT_REGISTRY is defined %}
       imagePullSecrets:
       - name: ledger-registry-secret
 {% endif %}
@@ -260,7 +260,7 @@ spec:
         - name: MYSQL_LEDGER_PASSWORD
           value: /run/secrets/db-ledger-password
 {% if k8s_container_registry %}
-        image: {{ k8s_container_registry | default("ghcr.io/ctrliq/ascender-ledger", true)  ~ "/ledger-parser" }}:{{ LEDGER_VERSION }}
+        image: {{ k8s_container_registry | default("depot.ciq.com/ascender-pro/ascender-ledger-pro-images", true)  ~ "/ledger-parser" }}:{{ LEDGER_VERSION }}
 {% else %}
         image: {{ LEDGER_PARSER_IMAGE }}:{{ LEDGER_VERSION }}
 {% endif %}
@@ -275,7 +275,7 @@ spec:
           name: db-ledger-password
         - mountPath: /run/secrets/db-settings
           name: db-settings
-{% if LEDGER_REGISTRY is defined %}
+{% if DEPOT_REGISTRY is defined %}
       imagePullSecrets:
       - name: ledger-registry-secret
 {% endif %}
@@ -324,7 +324,7 @@ spec:
         - name: MYSQL_LEDGER_PASSWORD
           value: /run/secrets/db-ledger-password
 {% if k8s_container_registry %}
-        image: {{ k8s_container_registry | default("ghcr.io/ctrliq/ascender-ledger", true)  ~ "/ledger-web" }}:{{ LEDGER_VERSION }}
+        image: {{ k8s_container_registry | default("depot.ciq.com/ascender-pro/ascender-ledger-pro-images", true)  ~ "/ledger-web" }}:{{ LEDGER_VERSION }}
 {% else %}
         image: {{ LEDGER_WEB_IMAGE }}:{{ LEDGER_VERSION }}
 {% endif %}
@@ -339,7 +339,7 @@ spec:
           name: db-ledger-password
         - mountPath: /run/secrets/db-settings
           name: db-settings
-{% if LEDGER_REGISTRY is defined %}
+{% if DEPOT_REGISTRY is defined %}
       imagePullSecrets:
       - name: ledger-registry-secret
 {% endif %}

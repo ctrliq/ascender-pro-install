@@ -31,8 +31,8 @@ ASCENDER_NAMESPACE: ascender
 ASCENDER_ADMIN_USER: admin
 ASCENDER_ADMIN_PASSWORD: "replace-me"
 ASCENDER_IMAGE: ghcr.io/ctrliq/ascender
-ASCENDER_VERSION: 25.3.6
-ASCENDER_OPERATOR_VERSION: 2.19.5
+ASCENDER_VERSION: 25.5.1
+ASCENDER_OPERATOR_VERSION: 25.5.1
 ascender_garbage_collect_secrets: true
 
 # Optional explicit StorageClass for PostgreSQL.
@@ -48,11 +48,11 @@ ascender_garbage_collect_secrets: true
 
 LEDGER_INSTALL: true
 LEDGER_HOSTNAME: ledger.example.com
-LEDGER_WEB_IMAGE: ghcr.io/ctrliq/ascender-ledger/ledger-web
+LEDGER_WEB_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-web
 ledger_web_replicas: 1
-LEDGER_PARSER_IMAGE: ghcr.io/ctrliq/ascender-ledger/ledger-parser
+LEDGER_PARSER_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-parser
 ledger_parser_replicas: 1
-LEDGER_DB_IMAGE: ghcr.io/ctrliq/ascender-ledger/ledger-db
+LEDGER_DB_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-db
 LEDGER_VERSION: latest
 LEDGER_NAMESPACE: ledger
 LEDGER_ADMIN_PASSWORD: "replace-me"

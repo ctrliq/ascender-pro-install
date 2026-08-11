@@ -115,6 +115,10 @@ spec:
             capabilities:
               drop:
                 - ALL
+{% if DEPOT_REGISTRY is defined %}
+      imagePullSecrets:
+        - name: proxy-registry-secret
+{% endif %}
       volumes:
         - name: cache
           persistentVolumeClaim:

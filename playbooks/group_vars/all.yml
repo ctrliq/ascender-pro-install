@@ -251,19 +251,19 @@ LEDGER_INSTALL: false
 LEDGER_HOSTNAME: ledger.example.com
 
 # The OCI container image for Ledger
-LEDGER_WEB_IMAGE: ghcr.io/ctrliq/ascender-ledger/ledger-web
+LEDGER_WEB_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-web
 
 # The number of ledger web pods - this is good to ensure high availability
 ledger_web_replicas: 1
 
 # The OCI container image for the Ledger Parser
-LEDGER_PARSER_IMAGE: ghcr.io/ctrliq/ascender-ledger/ledger-parser
+LEDGER_PARSER_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-parser
 
 # The number of ledger parser pods - this is good to ensure high availability
 ledger_parser_replicas: 1
 
 # The OCI container image for the Ledger Database
-LEDGER_DB_IMAGE: ghcr.io/ctrliq/ascender-ledger/ledger-db
+LEDGER_DB_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-db
 
 # The image tag indicating the version of Ledger you wish to install
 LEDGER_VERSION: latest
@@ -312,7 +312,7 @@ PROXY_CONFIG:
     # PVC Size in Gigabytes
   PVC_SIZE: 5
 
-PROXY_IMAGE: ghcr.io/ctrliq/ascender-galaxy-proxy
+PROXY_IMAGE: depot.ciq.com/ascender-pro/ascender-galaxy-proxy-images/ascender-galaxy-proxy
 PROXY_VERSION: latest
 
 required_collections:

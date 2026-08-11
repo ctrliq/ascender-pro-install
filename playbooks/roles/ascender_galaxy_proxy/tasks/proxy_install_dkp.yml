@@ -8,6 +8,20 @@
     src: proxy_deployment_dkp.yml
     dest: "{{ tmp_dir }}/proxy_deployment_dkp.yml.{{ ansible_date_time.iso8601_basic_short }}"
 
+- name: Generate manifest for the Proxy registry secret with timestamp, for purposes of deletion later
+  when: DEPOT_REGISTRY.BASE is defined
+  ansible.builtin.template:
+    src: proxy_deployment_registry_secret.yml
+    dest: "{{ tmp_dir }}/proxy_deployment_registry_secret.yml.{{ ansible_date_time.iso8601_basic_short }}"
+
+- name: Apply proxy registry secret (if needed) manifest for {{ k8s_platform }}
+  when: DEPOT_REGISTRY.BASE is defined
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ ASCENDER_NAMESPACE }}"
+    definition: "{{ lookup('template', 'templates/proxy_deployment_registry_secret.yml') | from_yaml }}"
+    verify_ssl: false
+
 - name: "Apply proxy manifest for {{ k8s_platform }}"
   kubernetes.core.k8s:
     state: present

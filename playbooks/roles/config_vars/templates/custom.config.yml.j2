@@ -6,8 +6,8 @@
 	| regex_replace('(?m)^(LEDGER_ADMIN_PASSWORD: ).*$', '\\1' ~ (config_data.LEDGER_ADMIN_PASSWORD | default('', true) | to_json))
 	| regex_replace('(?m)^(LEDGER_DB_PASSWORD: ).*$', '\\1' ~ (config_data.LEDGER_DB_PASSWORD | default('', true) | to_json))
 %}
-{% if config_data.LEDGER_REGISTRY is defined and config_data.LEDGER_REGISTRY.PASSWORD is defined %}
-{% set rendered_config = rendered_config | regex_replace('(?m)^(  PASSWORD: ).*$', '\\1' ~ (config_data.LEDGER_REGISTRY.PASSWORD | to_json)) %}
+{% if config_data.DEPOT_REGISTRY is defined and config_data.DEPOT_REGISTRY.PASSWORD is defined %}
+{% set rendered_config = rendered_config | regex_replace('(?m)^(  PASSWORD: ).*$', '\\1' ~ (config_data.DEPOT_REGISTRY.PASSWORD | to_json)) %}
 {% endif %}
 {% if config_data.PROXY_CONFIG is defined and config_data.PROXY_CONFIG.GALAXY_API_TOKEN is defined %}
 {% set rendered_config = rendered_config | regex_replace('(?m)^(  GALAXY_API_TOKEN: ).*$', '\\1' ~ (config_data.PROXY_CONFIG.GALAXY_API_TOKEN | to_json)) %}
