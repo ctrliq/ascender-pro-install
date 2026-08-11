@@ -84,7 +84,7 @@
     config_vars_menu_target: use_ee_images
     config_vars_menu_default_display: "false"
     config_vars_menu_default_value: false
-  when: config_data.k8s_platform in ['k3s', 'eks', 'aks', 'gke', 'rke2', 'dkp', 'ocp']
+  when: config_data.k8s_platform in ['k3s', 'eks', 'aks', 'gke', 'rke2', 'dkp', 'ocp', 'tkgi']
 
 - name: Reset the EE image list when custom images are requested
   ansible.builtin.set_fact:
@@ -549,7 +549,7 @@
         config_vars_menu_target: use_etc_hosts
         config_vars_menu_default_display: "{{ config_data.use_etc_hosts | bool | ternary('true', 'false') }}"
         config_vars_menu_default_value: "{{ config_data.use_etc_hosts | bool }}"
-  when: config_data.k8s_platform in ['k3s', 'dkp', 'rke2']
+  when: config_data.k8s_platform in ['k3s', 'dkp', 'rke2', 'tkgi']
 
 - block:
     - name: "TLS certificate file location on the local installing machine"
@@ -576,5 +576,5 @@
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'tls_key_path': tls_key_path_value, 'PROXY_TLS_KEY_PATH': tls_key_path_value}, recursive=True) }}"
   when:
-    - config_data.k8s_platform in ['k3s', 'dkp', 'rke2', 'aks', 'gke', 'eks']
+    - config_data.k8s_platform in ['k3s', 'dkp', 'rke2', 'tkgi', 'aks', 'gke', 'eks']
     - config_data.k8s_lb_protocol == 'https'
