@@ -1,0 +1,314 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ascender-registry-config
+  namespace: {{ REGISTRY_NAMESPACE }}
+data:
+  # Port the application listens on inside the container.
+  APP_PORT: "8080"
+  # Enable verbose debug logging and template hot-reload.
+  DEBUG: "{{ REGISTRY_CONFIG.DEBUG | default('false') }}"
+  # SQLite database file path (must live on a writable persistent volume).
+  DB_PATH: "/app/data/ascender.db"
+  # Directory where downloaded/custom collection artifacts are stored.
+  ARTIFACTS_DIR: "/app/artifacts"
+  # Host:port of the backing Docker container registry (registry:2 service).
+  REGISTRY_HOST: "ascender-registry-containers:5000"
+  # Public base URL used for security headers (HSTS enabled when https://).
+  BASE_URL: "{{ REGISTRY_CONFIG.URL | default('https://' ~ REGISTRY_HOSTNAME) }}"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ascender-registry-secrets
+  namespace: {{ REGISTRY_NAMESPACE }}
+type: Opaque
+stringData:
+  # 32-byte session encryption key, hex-encoded (64 hex characters).
+  # If left blank, the app falls back to a key stored in the database.
+  session-key: "{{ REGISTRY_CONFIG.SESSION_KEY | default('') }}"
+  # Secret used to AES-256 encrypt sensitive data at rest (e.g. repository auth
+  # tokens and container upstream passwords). The application refuses to start
+  # while this is unset or left as the default "CHANGEME".
+  secret-key: "{{ REGISTRY_CONFIG.SECRET_KEY | default('CHANGEME') }}"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ascender-registry-data
+  namespace: {{ REGISTRY_NAMESPACE }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ REGISTRY_CONFIG.DATA_PVC_SIZE | default('5') }}Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ascender-registry-artifacts
+  namespace: {{ REGISTRY_NAMESPACE }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ REGISTRY_CONFIG.ARTIFACTS_PVC_SIZE | default('20') }}Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ascender-registry
+  namespace: {{ REGISTRY_NAMESPACE }}
+spec:
+  replicas: 1
+  strategy:
+    # SQLite + ReadWriteOnce volumes require a single writer at a time.
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ascender-registry
+  template:
+    metadata:
+      labels:
+        app: ascender-registry
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ascender-registry
+          image: {{ REGISTRY_IMAGE }}:{{ REGISTRY_VERSION }}
+          imagePullPolicy: {{ ascender_image_pull_policy | default("Always") }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: ascender-registry-config
+          volumeMounts:
+            - name: secrets
+              mountPath: /run/secrets
+              readOnly: true
+            - name: data
+              mountPath: /app/data
+            - name: artifacts
+              mountPath: /app/artifacts
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 2
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop:
+                - ALL
+{% if DEPOT_REGISTRY is defined %}
+      imagePullSecrets:
+        - name: ascender-registry-pull-secret
+{% endif %}
+      volumes:
+        - name: secrets
+          secret:
+            secretName: ascender-registry-secrets
+            items:
+              - key: session-key
+                path: session-key
+              - key: secret-key
+                path: secret-key
+        - name: data
+          persistentVolumeClaim:
+            claimName: ascender-registry-data
+        - name: artifacts
+          persistentVolumeClaim:
+            claimName: ascender-registry-artifacts
+        - name: tmp
+          emptyDir: {}
+---
+# Backing Docker container registry (registry:2) used to store container images.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ascender-registry-container-storage
+  namespace: {{ REGISTRY_NAMESPACE }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ REGISTRY_CONFIG.CONTAINER_STORAGE_PVC_SIZE | default('50') }}Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ascender-registry-containers
+  namespace: {{ REGISTRY_NAMESPACE }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ascender-registry-containers
+  template:
+    metadata:
+      labels:
+        app: ascender-registry-containers
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: registry
+          image: registry:2
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: REGISTRY_STORAGE_DELETE_ENABLED
+              value: "true"
+          ports:
+            - name: registry
+              containerPort: 5000
+              protocol: TCP
+          volumeMounts:
+            - name: storage
+              mountPath: /var/lib/registry
+          readinessProbe:
+            httpGet:
+              path: /v2/
+              port: registry
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /v2/
+              port: registry
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 2
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: ascender-registry-container-storage
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ascender-registry-containers
+  namespace: {{ REGISTRY_NAMESPACE }}
+spec:
+  type: ClusterIP
+  selector:
+    app: ascender-registry-containers
+  ports:
+    - name: registry
+      port: 5000
+      targetPort: registry
+{% if k8s_lb_protocol == 'https'  %}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ascender-registry-tls
+  namespace: {{ REGISTRY_NAMESPACE }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ lookup('ansible.builtin.file', REGISTRY_TLS_CRT_PATH) | b64encode }}
+  tls.key: {{ lookup('ansible.builtin.file', REGISTRY_TLS_KEY_PATH) | b64encode }}
+{% endif %}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ascender-registry
+  namespace: {{ REGISTRY_NAMESPACE }}
+spec:
+  type: ClusterIP
+  selector:
+    app: ascender-registry
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+{% if k8s_lb_protocol == 'https' %}
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+{% endif %}
+  name: ascender-registry
+  namespace: {{ REGISTRY_NAMESPACE }}
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: {{ REGISTRY_HOSTNAME }}
+      http:
+        paths:
+        - backend:
+            service:
+              name: ascender-registry
+              port:
+                number: 80
+          path: /
+          pathType: Prefix
+{% if k8s_lb_protocol == 'https' %}
+  tls:
+    - hosts:
+      - {{ REGISTRY_HOSTNAME }}
+      secretName: ascender-registry-tls
+{% endif %}

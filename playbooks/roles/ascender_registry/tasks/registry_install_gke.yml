@@ -1,0 +1,157 @@
+- name: Retrieve the current time in order to timestamp files
+  ansible.builtin.setup:
+    gather_subset:
+     - date_time
+
+- name: Generate manifest to install registry k8s object with timestamp attached, for purposes of deletion later
+  ansible.builtin.template:
+    src: registry_deployment_gke.yml
+    dest: "{{ tmp_dir }}/registry_deployment_gke.yml.{{ ansible_date_time.iso8601_basic_short }}"
+
+- name: Generate manifest for the Registry registry secret with timestamp, for purposes of deletion later
+  when: DEPOT_REGISTRY.BASE is defined
+  ansible.builtin.template:
+    src: registry_deployment_registry_secret.yml
+    dest: "{{ tmp_dir }}/registry_deployment_registry_secret.yml.{{ ansible_date_time.iso8601_basic_short }}"
+
+- name: Apply registry registry secret (if needed) manifest for {{ k8s_platform }}
+  when: DEPOT_REGISTRY.BASE is defined
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ REGISTRY_NAMESPACE }}"
+    definition: "{{ lookup('template', 'templates/registry_deployment_registry_secret.yml') | from_yaml }}"
+    verify_ssl: false
+
+- name: "Apply registry manifest for {{ k8s_platform }}"
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ REGISTRY_NAMESPACE }}"
+    definition: "{{ lookup('template', 'templates/registry_deployment_gke.yml') | from_yaml_all }}"
+    verify_ssl: false
+  register: registry_apply_result
+
+- name: Wait for Registry Deployment to complete setting up
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    wait: yes
+    name: ascender-registry
+    namespace: "{{ REGISTRY_NAMESPACE }}"
+    wait_sleep: 10
+    wait_timeout: 360
+    verify_ssl: false
+
+- name: Wait for ascender-registry-containers Deployment to complete setting up
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    wait: yes
+    name: ascender-registry-containers
+    namespace: "{{ REGISTRY_NAMESPACE }}"
+    wait_sleep: 10
+    wait_timeout: 360
+    verify_ssl: false
+     
+- name: Restart Registry deployments to pull latest image
+  kubernetes.core.k8s:
+    state: present
+    api_version: apps/v1
+    kind: Deployment
+    name: "ascender-registry"
+    namespace: "{{ REGISTRY_NAMESPACE }}"
+    definition:
+      spec:
+        template:
+          metadata:
+            annotations:
+              kubectl.kubernetes.io/restartedAt: "{{ ansible_date_time.iso8601 }}"
+    merge_type:
+      - strategic-merge
+    verify_ssl: false
+  when:
+    - REGISTRY_VERSION | lower == "latest"
+    - not registry_apply_result.changed
+
+
+- name: Retrieve the ascender-registry Ingress object
+  kubernetes.core.k8s_info:
+    api_version: networking.k8s.io/v1
+    kind: Ingress
+    name: ascender-registry
+    namespace: "{{ REGISTRY_NAMESPACE }}"
+  register: registry_ingress
+  until:
+    - registry_ingress.resources[0].status.loadBalancer.ingress[0].ip is defined
+    - registry_ingress.resources[0].spec.rules[0].host is defined
+  retries: 20
+
+- ansible.builtin.debug: 
+    var: registry_ingress.resources[0].status.loadBalancer.ingress[0].ip
+
+- ansible.builtin.debug: 
+    var: registry_ingress.resources[0].spec.rules[0].host
+
+- name: Check if Google Cloud DNS A record exists
+  ansible.builtin.command: >
+    gcloud dns record-sets list --zone={{ GOOGLE_DNS_MANAGED_ZONE }} --name={{ REGISTRY_HOSTNAME }} --type=A --format=json
+  register: dns_records
+  when: USE_GOOGLE_DNS
+
+- name: Parse DNS records to check for any existing record
+  ansible.builtin.set_fact:
+    record_exists: "{{ dns_records.stdout | from_json | json_query('[?type==`A`]') | length > 0 }}"
+  when: USE_GOOGLE_DNS
+
+- name: Conditionally manage the Google Cloud DNS record based on existence
+  block:
+    - name: Remove existing Google Cloud DNS A record if it exists
+      block:
+        - name: Start DNS transaction
+          ansible.builtin.command: gcloud dns record-sets transaction start --zone={{ GOOGLE_DNS_MANAGED_ZONE }}
+
+        - name: Remove Google Cloud DNS A record
+          ansible.builtin.command: >
+            gcloud dns record-sets transaction remove --zone={{ GOOGLE_DNS_MANAGED_ZONE }}
+            --name={{ REGISTRY_HOSTNAME }} --type=A
+            --ttl={{ dns_records.stdout | from_json | json_query('[?type==`A`].ttl | [0]') }}
+            {{ dns_records.stdout | from_json | json_query('[?type==`A`].rrdatas[] | [0]') }}
+
+        - name: Execute Google Cloud DNS transaction
+          ansible.builtin.command: gcloud dns record-sets transaction execute --zone={{ GOOGLE_DNS_MANAGED_ZONE }}
+      when: record_exists
+
+    - name: Add Google Cloud DNS A record
+      block:
+        - name: Start Google Cloud DNS transaction
+          ansible.builtin.command: gcloud dns record-sets transaction start --zone={{ GOOGLE_DNS_MANAGED_ZONE }}
+
+        - name: Add Google Cloud DNS A record
+          ansible.builtin.command: >
+            gcloud dns record-sets transaction add --zone={{ GOOGLE_DNS_MANAGED_ZONE }}
+            --name={{ REGISTRY_HOSTNAME }} --type=A
+            --ttl=600 {{ registry_ingress.resources[0].status.loadBalancer.ingress[0].ip }}
+
+        - name: Execute Google Cloud DNS transaction
+          ansible.builtin.command: gcloud dns record-sets transaction execute --zone={{ GOOGLE_DNS_MANAGED_ZONE }}
+  when: USE_GOOGLE_DNS
+
+- name: Indicate Instructions for non-Google DNS Domain Management
+  ansible.builtin.debug: 
+    msg: "Please manually create a DNS A record for {{ REGISTRY_HOSTNAME }} in your DNS Record Manager of choice, mapping to {{ registry_ingress.resources[0].status.loadBalancer.ingress[0].ip }}"
+  when: not USE_GOOGLE_DNS
+
+- ansible.builtin.debug:
+    msg: "The Registry endpoint is {{ k8s_lb_protocol }}://{{ REGISTRY_HOSTNAME }}"
+
+- name: Wait until Registry endpoint is Up
+  ansible.builtin.uri:
+    url: "{{ k8s_lb_protocol }}://{{ REGISTRY_HOSTNAME }}/"
+    return_content: yes
+    validate_certs: false
+    status_code:
+      - 200
+  until: uri_output.status == 200
+  retries: 200
+  delay: 10
+  register: uri_output
+
+- ansible.builtin.debug:
+    msg: "Registry endpoint is up"

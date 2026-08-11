@@ -24,6 +24,9 @@
 - name: Collect Proxy configuration
   ansible.builtin.include_tasks: proxy.yml
 
+- name: Collect Registry configuration
+  ansible.builtin.include_tasks: registry.yml
+
 - name: Render custom.config.yml
   ansible.builtin.template:
     src: custom.config.yml.j2

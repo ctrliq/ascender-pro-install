@@ -17,6 +17,10 @@
   ansible.builtin.import_playbook: install_proxy.yml
   when: PROXY_INSTALL
 
+- name: Install Registry
+  ansible.builtin.import_playbook: install_registry.yml
+  when: REGISTRY_INSTALL
+
 - name: Configure Initial Playbooks
   ansible.builtin.import_playbook: setup_playbooks.yml
   when:

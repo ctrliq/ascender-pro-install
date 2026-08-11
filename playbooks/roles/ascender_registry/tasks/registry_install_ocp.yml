@@ -1,0 +1,89 @@
+- name: Retrieve the current time in order to timestamp files
+  ansible.builtin.setup:
+    gather_subset:
+     - date_time
+
+- name: Generate manifest to install registry k8s object with timestamp attached, for purposes of deletion later
+  ansible.builtin.template:
+    src: registry_deployment_ocp.yml
+    dest: "{{ tmp_dir }}/registry_deployment_ocp.yml.{{ ansible_date_time.iso8601_basic_short }}"
+
+- name: Generate manifest for the Registry registry secret with timestamp, for purposes of deletion later
+  when: DEPOT_REGISTRY.BASE is defined
+  ansible.builtin.template:
+    src: registry_deployment_registry_secret.yml
+    dest: "{{ tmp_dir }}/registry_deployment_registry_secret.yml.{{ ansible_date_time.iso8601_basic_short }}"
+
+- name: Apply registry registry secret (if needed) manifest for {{ k8s_platform }}
+  when: DEPOT_REGISTRY.BASE is defined
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ REGISTRY_NAMESPACE }}"
+    definition: "{{ lookup('template', 'templates/registry_deployment_registry_secret.yml') | from_yaml }}"
+    verify_ssl: false
+
+- name: "Apply registry manifest for {{ k8s_platform }}"
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ REGISTRY_NAMESPACE }}"
+    definition: "{{ lookup('template', 'templates/registry_deployment_ocp.yml') | from_yaml_all }}"
+    verify_ssl: false
+  register: registry_apply_result
+
+- name: Wait for Registry Deployment to complete setting up
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    wait: yes
+    name: ascender-registry
+    namespace: "{{ REGISTRY_NAMESPACE }}"
+    wait_sleep: 10
+    wait_timeout: 360
+    verify_ssl: false
+
+- name: Wait for ascender-registry-containers Deployment to complete setting up
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    wait: yes
+    name: ascender-registry-containers
+    namespace: "{{ REGISTRY_NAMESPACE }}"
+    wait_sleep: 10
+    wait_timeout: 360
+    verify_ssl: false
+     
+- name: Restart Registry deployments to pull latest image
+  kubernetes.core.k8s:
+    state: present
+    api_version: apps/v1
+    kind: Deployment
+    name: "ascender-registry"
+    namespace: "{{ REGISTRY_NAMESPACE }}"
+    definition:
+      spec:
+        template:
+          metadata:
+            annotations:
+              kubectl.kubernetes.io/restartedAt: "{{ ansible_date_time.iso8601 }}"
+    merge_type:
+      - strategic-merge
+    verify_ssl: false
+  when:
+    - REGISTRY_VERSION | lower == "latest"
+    - not registry_apply_result.changed
+
+- ansible.builtin.debug:
+    msg: "The Registry endpoint is {{ k8s_lb_protocol }}://{{ REGISTRY_HOSTNAME }}"
+
+- name: Wait until Registry endpoint is Up
+  ansible.builtin.uri:
+    url: "{{ k8s_lb_protocol }}://{{ REGISTRY_HOSTNAME }}/"
+    return_content: yes
+    validate_certs: false
+    status_code:
+      - 200
+  until: uri_output.status == 200
+  retries: 200
+  delay: 10
+  register: uri_output
+
+- ansible.builtin.debug:
+    msg: "Registry endpoint is up"

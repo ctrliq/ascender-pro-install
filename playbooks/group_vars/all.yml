@@ -315,6 +315,37 @@ PROXY_CONFIG:
 PROXY_IMAGE: depot.ciq.com/ascender-pro/ascender-galaxy-proxy-images/ascender-galaxy-proxy
 PROXY_VERSION: latest
 
+    # Whether to install the Ascender Registry
+REGISTRY_INSTALL: false
+
+    # The Kubernetes namespace in which Registry objects will live
+REGISTRY_NAMESPACE: ascender-registry
+
+REGISTRY_HOSTNAME: registry.example.com
+
+REGISTRY_CONFIG:
+    # Enable debug logging.
+  DEBUG: "false"
+    # Public base URL used for security headers (HSTS enabled when https://). Must include http/https.
+  URL: "https://{{ REGISTRY_HOSTNAME }}"
+    # 32-byte session encryption key, hex-encoded (64 hex characters). Generate one with: openssl rand -hex 32
+    # If left blank, the app falls back to a key stored in the database.
+  SESSION_KEY: ""
+    # Secret used to AES-256 encrypt sensitive data at rest. The application refuses to
+    # start while this is unset or left as the default "CHANGEME". Generate a strong value with: openssl rand -hex 32
+  SECRET_KEY: "CHANGEME"
+    # PVC Size in Gigabytes for the application database/state volume
+  DATA_PVC_SIZE: 5
+    # PVC Size in Gigabytes for the collection/artifact cache volume
+  ARTIFACTS_PVC_SIZE: 20
+    # PVC Size in Gigabytes for the backing container image storage volume
+  CONTAINER_STORAGE_PVC_SIZE: 50
+
+    # The OCI container image for the Ascender Registry. Not exposed in default.config.yml;
+    # only the version tag is expected to change on a per-install basis.
+REGISTRY_IMAGE: depot.ciq.com/ascender-pro/ascender-registry-images/ascender-registry
+REGISTRY_VERSION: "1.0.0"
+
 required_collections:
   - name: amazon.aws
     version: "6.5.0"
