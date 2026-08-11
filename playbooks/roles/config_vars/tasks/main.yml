@@ -18,6 +18,9 @@
 - name: Collect Ascender configuration
   ansible.builtin.include_tasks: ascender.yml
 
+- name: Collect Depot Registry configuration
+  ansible.builtin.include_tasks: depot_registry.yml
+
 - name: Collect Ledger configuration
   ansible.builtin.include_tasks: ledger.yml
 

@@ -1,0 +1,42 @@
+# Credentials for pulling private images (Ledger and other CIQ apps) from
+# depot.ciq.com. Get your username and password from portal.ciq.com.
+
+# The registry base is always depot.ciq.com; users never need to set/change it.
+- name: Set the Depot Registry base
+  ansible.builtin.set_fact:
+    config_data: "{{ config_data | combine({'DEPOT_REGISTRY': (config_data.DEPOT_REGISTRY | default({})) | combine({'BASE': 'depot.ciq.com'}, recursive=True)}, recursive=True) }}"
+
+- name: "Depot Registry username (get your credentials from portal.ciq.com)"
+  prompt:
+    prompt: "Enter your selection [{{ config_data.DEPOT_REGISTRY.USERNAME | default('username') }}]: "
+  register: config_vars_depot_registry_username
+
+- name: Save the Depot Registry username
+  vars:
+    depot_registry_username_default: "{{ config_data.DEPOT_REGISTRY.USERNAME | default('username') }}"
+    depot_registry_username_value: "{{ config_vars_depot_registry_username.user_input | trim | default(depot_registry_username_default, true) }}"
+  ansible.builtin.set_fact:
+    config_data: "{{ config_data | combine({'DEPOT_REGISTRY': (config_data.DEPOT_REGISTRY | default({})) | combine({'USERNAME': depot_registry_username_value}, recursive=True)}, recursive=True) }}"
+
+- name: "Depot Registry password (get your credentials from portal.ciq.com)"
+  prompt:
+    prompt: "Enter your selection [hidden]: "
+    echo: false
+  register: config_vars_depot_registry_password
+  until: >-
+    '"' not in (
+      (config_vars_depot_registry_password.user_input | default('', true) | trim)
+      if (config_vars_depot_registry_password.user_input | default('', true) | trim) != ''
+      else (config_data.DEPOT_REGISTRY.PASSWORD | default('password'))
+    )
+  retries: "{{ config_vars_prompt_retries }}"
+  delay: "{{ config_vars_prompt_delay }}"
+  no_log: true
+
+- name: Save the Depot Registry password
+  vars:
+    depot_registry_password_default: "{{ config_data.DEPOT_REGISTRY.PASSWORD | default('password') }}"
+    depot_registry_password_value: "{{ config_vars_depot_registry_password.user_input | trim | default(depot_registry_password_default, true) }}"
+  ansible.builtin.set_fact:
+    config_data: "{{ config_data | combine({'DEPOT_REGISTRY': (config_data.DEPOT_REGISTRY | default({})) | combine({'PASSWORD': depot_registry_password_value}, recursive=True)}, recursive=True) }}"
+  no_log: true

@@ -260,8 +260,9 @@ LEDGER_INSTALL: true
     # DNS resolvable hostname for Ledger service. This is required for install.
 LEDGER_HOSTNAME: ledger.example.com
 
-    # Credentials for pulling private images (Ledger and other CIQ apps), all
-    # fields must be specified.
+    # Credentials for pulling private images (Ledger and other CIQ apps).
+    # BASE should always remain depot.ciq.com. Get your USERNAME/PASSWORD from
+    # portal.ciq.com.
 DEPOT_REGISTRY:
   BASE: depot.ciq.com
   USERNAME: username
