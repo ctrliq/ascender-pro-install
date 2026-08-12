@@ -100,7 +100,7 @@ check_collections() {
   if [ $? -ne 0 ]; then
     return 0
   fi
-  ansible-doc -t module -l | grep awx.awx.settings > /dev/null
+  ansible-doc -t module -l | grep ctrliq.ascender.settings > /dev/null
   if [ $? -ne 0 ]; then
     return 0
   fi

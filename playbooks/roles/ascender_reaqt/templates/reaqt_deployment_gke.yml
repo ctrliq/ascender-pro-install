@@ -275,28 +275,28 @@ spec:
             - name: http
               containerPort: 5002
               protocol: TCP
-          readinessProbe:
-            # /readyz reports 200 while up and surfaces a "degraded" status when
-            # provider secrets cannot be decrypted (SECRET_KEY missing/mismatch).
-            httpGet:
-              path: /readyz
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            timeoutSeconds: 2
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: http
-            initialDelaySeconds: 10
-            periodSeconds: 30
-            timeoutSeconds: 2
-          startupProbe:
-            httpGet:
-              path: /healthz
-              port: http
-            failureThreshold: 30
-            periodSeconds: 2
+          # readinessProbe:
+          #   # /readyz reports 200 while up and surfaces a "degraded" status when
+          #   # provider secrets cannot be decrypted (SECRET_KEY missing/mismatch).
+          #   httpGet:
+          #     path: /readyz
+          #     port: http
+          #   initialDelaySeconds: 5
+          #   periodSeconds: 10
+          #   timeoutSeconds: 2
+          # livenessProbe:
+          #   httpGet:
+          #     path: /healthz
+          #     port: http
+          #   initialDelaySeconds: 10
+          #   periodSeconds: 30
+          #   timeoutSeconds: 2
+          # startupProbe:
+          #   httpGet:
+          #     path: /healthz
+          #     port: http
+          #   failureThreshold: 30
+          #   periodSeconds: 2
           resources:
             requests:
               cpu: 100m
@@ -394,26 +394,26 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
-          readinessProbe:
-            httpGet:
-              path: /login
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            timeoutSeconds: 2
-          livenessProbe:
-            httpGet:
-              path: /login
-              port: http
-            initialDelaySeconds: 10
-            periodSeconds: 30
-            timeoutSeconds: 2
-          startupProbe:
-            httpGet:
-              path: /login
-              port: http
-            failureThreshold: 30
-            periodSeconds: 2
+          # readinessProbe:
+          #   httpGet:
+          #     path: /login
+          #     port: http
+          #   initialDelaySeconds: 5
+          #   periodSeconds: 10
+          #   timeoutSeconds: 2
+          # livenessProbe:
+          #   httpGet:
+          #     path: /login
+          #     port: http
+          #   initialDelaySeconds: 10
+          #   periodSeconds: 30
+          #   timeoutSeconds: 2
+          # startupProbe:
+          #   httpGet:
+          #     path: /login
+          #     port: http
+          #   failureThreshold: 30
+          #   periodSeconds: 2
           resources:
             requests:
               cpu: 100m
