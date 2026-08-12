@@ -199,7 +199,7 @@ ASCENDER_IMAGE: ghcr.io/ctrliq/ascender
 # The image tag indicating the version of Ascender you wish to install
 ASCENDER_VERSION: 25.5.1
 
-# The version of the AWX Operator used to install Ascender and its components
+# The version of the Ascender Operator used to install Ascender and its components
 ASCENDER_OPERATOR_VERSION: 25.5.1
 
 # DNS resolvable hostname for Ascender Mesh service.  This is used by Execution Nodes to access Ascender.
@@ -344,7 +344,7 @@ REGISTRY_CONFIG:
     # The OCI container image for the Ascender Registry. Not exposed in default.config.yml;
     # only the version tag is expected to change on a per-install basis.
 REGISTRY_IMAGE: depot.ciq.com/ascender-pro/ascender-registry-images/ascender-registry
-REGISTRY_VERSION: "1.0.0"
+REGISTRY_VERSION: "latest"
 
 # ---Reaqt install variables---
 
