@@ -81,7 +81,7 @@
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REAQT_LISTENER_NAME': reaqt_listener_name_value}, recursive=True) }}"
 
-    - name: "Shared bearer token the Reaqt listener presents to the web app's API"
+    - name: "Shared bearer token the Reaqt listener presents to the web app's API (leave blank to generate a random one)"
       prompt:
         prompt: "Enter your selection [hidden]: "
         echo: false
@@ -99,7 +99,8 @@
     - name: Save the Reaqt listener API token
       vars:
         reaqt_listener_api_token_default: "{{ config_data.REAQT_LISTENER_API_TOKEN }}"
-        reaqt_listener_api_token_value: "{{ config_vars_reaqt_listener_api_token.user_input | trim | default(reaqt_listener_api_token_default, true) }}"
+        reaqt_listener_api_token_input: "{{ config_vars_reaqt_listener_api_token.user_input | trim | default(reaqt_listener_api_token_default, true) }}"
+        reaqt_listener_api_token_value: "{{ reaqt_listener_api_token_input if reaqt_listener_api_token_input not in ['', 'changeme-listener-api-token'] else lookup('ansible.builtin.password', '/dev/null', length=50, chars=['ascii_letters', 'digits']) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REAQT_LISTENER_API_TOKEN': reaqt_listener_api_token_value}, recursive=True) }}"
       no_log: true
