@@ -38,6 +38,10 @@ stringData:
   # tokens and container upstream passwords). The application refuses to start
   # while this is unset or left as the default "CHANGEME".
   secret-key: "{{ REGISTRY_CONFIG.SECRET_KEY | default('CHANGEME') }}"
+  # Initial web-UI password for the built-in "admin" account. Applied by the
+  # application on first start only (empty data volume), so set it here before
+  # the first deploy; afterwards rotate the password from the web UI.
+  admin-password: "{{ ASCENDER_ADMIN_PASSWORD }}"
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -156,6 +160,8 @@ spec:
                 path: session-key
               - key: secret-key
                 path: secret-key
+              - key: admin-password
+                path: admin-password
         - name: data
           persistentVolumeClaim:
             claimName: ascender-registry-data
