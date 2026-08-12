@@ -100,7 +100,7 @@
       vars:
         reaqt_listener_api_token_default: "{{ config_data.REAQT_LISTENER_API_TOKEN }}"
         reaqt_listener_api_token_input: "{{ config_vars_reaqt_listener_api_token.user_input | trim | default(reaqt_listener_api_token_default, true) }}"
-        reaqt_listener_api_token_value: "{{ reaqt_listener_api_token_input if reaqt_listener_api_token_input not in ['', 'changeme-listener-api-token'] else lookup('ansible.builtin.password', '/dev/null', length=50, chars=['ascii_letters', 'digits']) }}"
+        reaqt_listener_api_token_value: "{{ reaqt_listener_api_token_input if reaqt_listener_api_token_input not in ['', 'changeme-listener-api-token'] else lookup('ansible.builtin.password', '/dev/null', length=64, chars=['0123456789abcdef']) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REAQT_LISTENER_API_TOKEN': reaqt_listener_api_token_value}, recursive=True) }}"
       no_log: true
@@ -124,7 +124,7 @@
       vars:
         reaqt_session_key_default: "{{ config_data.REAQT_SESSION_KEY | default('') }}"
         reaqt_session_key_input: "{{ config_vars_reaqt_session_key.user_input | trim | default(reaqt_session_key_default, true) }}"
-        reaqt_session_key_value: "{{ reaqt_session_key_input if reaqt_session_key_input != '' else lookup('ansible.builtin.password', '/dev/null', length=50, chars=['ascii_letters', 'digits']) }}"
+        reaqt_session_key_value: "{{ reaqt_session_key_input if reaqt_session_key_input != '' else lookup('ansible.builtin.password', '/dev/null', length=64, chars=['0123456789abcdef']) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REAQT_SESSION_KEY': reaqt_session_key_value}, recursive=True) }}"
       no_log: true
@@ -148,7 +148,7 @@
       vars:
         reaqt_secret_key_default: "{{ config_data.REAQT_SECRET_KEY | default('') }}"
         reaqt_secret_key_input: "{{ config_vars_reaqt_secret_key.user_input | trim | default(reaqt_secret_key_default, true) }}"
-        reaqt_secret_key_value: "{{ reaqt_secret_key_input if reaqt_secret_key_input != '' else lookup('ansible.builtin.password', '/dev/null', length=50, chars=['ascii_letters', 'digits']) }}"
+        reaqt_secret_key_value: "{{ reaqt_secret_key_input if reaqt_secret_key_input != '' else lookup('ansible.builtin.password', '/dev/null', length=64, chars=['0123456789abcdef']) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REAQT_SECRET_KEY': reaqt_secret_key_value}, recursive=True) }}"
       no_log: true
