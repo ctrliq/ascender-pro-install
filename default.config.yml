@@ -2,7 +2,7 @@
 # ---Kubernetes-specific variables---
 
     # This variable specifies which Kubernetes platform Ascender and its components will be installed on.
-    # Options include k3s, eks and dkp, with more to come.
+        # Options include k3s, eks, dkp, and tkgi with more to come.
 k8s_platform: eks
 
     # Determines whether to use HTTP or HTTPS for Ascender and Ledger.
@@ -208,10 +208,10 @@ ASCENDER_ADMIN_PASSWORD: "myadminpassword"
 ASCENDER_IMAGE: ghcr.io/ctrliq/ascender
 
     # The image tag indicating the version of Ascender you wish to install
-ASCENDER_VERSION: 25.3.6
+ASCENDER_VERSION: 25.5.1
 
-    # The version of the AWX Operator used to install Ascender and its components
-ASCENDER_OPERATOR_VERSION: 2.19.5
+    # The version of the Ascender Operator used to install Ascender and its components
+#ASCENDER_OPERATOR_VERSION: 25.5.1
 
     # DNS resolvable hostname for Ascender Mesh service.  This is used by Execution Nodes to access Ascender.
     # Mesh will not be setup unless this is configured
@@ -260,27 +260,17 @@ LEDGER_INSTALL: true
     # DNS resolvable hostname for Ledger service. This is required for install.
 LEDGER_HOSTNAME: ledger.example.com
 
-    # Optional credentials for pulling the ledger image, all fields must be
-    # specified.
-#LEDGER_REGISTRY:
-#  BASE: depot.ciq.com
-#  USERNAME: username
-#  PASSWORD: password
+    # Credentials for pulling private images (Ledger and other CIQ apps).
+    # BASE should always remain depot.ciq.com. Get your USERNAME/PASSWORD from
+    # portal.ciq.com.
+DEPOT_REGISTRY:
+  BASE: depot.ciq.com
+  USERNAME: username
+  PASSWORD: password
 
-    # The OCI container image for Ledger
-LEDGER_WEB_IMAGE: ghcr.io/ctrliq/ascender-ledger/ledger-web
-
-    # The number of ledger web pods - this is good to ensure high availability
+    # The number of ledger pods - this is good to ensure high availability
 ledger_web_replicas: 1
-
-    # The OCI container image for the Ledger Parser
-LEDGER_PARSER_IMAGE: ghcr.io/ctrliq/ascender-ledger/ledger-parser
-
-    # The number of ledger parser pods - this is good to ensure high availability
 ledger_parser_replicas: 1
-
-    # The OCI container image for the Ledger Database
-LEDGER_DB_IMAGE: ghcr.io/ctrliq/ascender-ledger/ledger-db
 
     # The image tag indicating the version of Ledger you wish to install
 LEDGER_VERSION: latest
@@ -308,3 +298,153 @@ LEDGER_ADMIN_PASSWORD: "myadminpassword"
 
     # Password for Ledger database
 LEDGER_DB_PASSWORD: "mydbpassword"
+
+    # Whether to install the Ascender Galaxy Proxy
+PROXY_INSTALL: false
+
+PROXY_HOSTNAME: galaxy-proxy.example.com
+
+PROXY_IMAGE: depot.ciq.com/ascender-pro/ascender-galaxy-proxy-images/ascender-galaxy-proxy
+
+PROXY_VERSION: latest
+
+PROXY_CONFIG:
+  # Enable debug logging.
+  DEBUG: "false"
+  # Cache API responses for this many days.
+  QUERY_CACHE_EXPIRE: "1"
+  # Cache artifact downloads for this many days.
+  ARTIFACT_CACHE_EXPIRE: "30"
+  # Comma-separated trusted proxy IPs.
+  TRUSTED_PROXIES: ""
+  # Public proxy URL used in rewritten links.  Must include http/https.
+  URL: "https://{{ PROXY_HOSTNAME }}"
+  # Upstream Galaxy server to proxy requests to.
+  UPSTREAM_BASEURL: "https://galaxy.ansible.com"
+  # Clear the on-disk cache when the app starts.
+  CLEAR_CACHE_ON_START: "0"
+  # Max number of responses kept in memory.
+  MEM_CACHE_SIZE: "2000"
+  # Optional outbound HTTP proxy for upstream calls.
+  HTTP_PROXY: ""
+  # Token required for API authentication to Proxy
+  GALAXY_API_TOKEN: ""
+  # PVC Size in Gigabytes
+  PVC_SIZE: 5
+
+    # TLS Certificate file, required when deploying HTTPS in K3s
+PROXY_TLS_CRT_PATH: "~/ascender.crt"
+
+    # TLS Private Key file, required when deploying HTTPS in K3s
+PROXY_TLS_KEY_PATH: "~/ascender.key"
+
+    # Storage Class for the Persistent Volume Claim for Ledger's database
+    # Only uncomment to set a specific storage class on new installs
+    # Leaving blank will use the default storage class of the cluster
+#PROXY_PVC_STORAGE_CLASS: ""
+
+    # Whether to install the Ascender Registry
+REGISTRY_INSTALL: false
+
+    # The Kubernetes namespace in which Registry objects will live
+REGISTRY_NAMESPACE: ascender-registry
+
+REGISTRY_HOSTNAME: registry.example.com
+
+    # The image tag indicating the version of the Ascender Registry
+REGISTRY_VERSION: "latest"
+
+REGISTRY_CONFIG:
+  # Enable debug logging.
+  DEBUG: "false"
+  # Public base URL used for security headers. Must include http/https.
+  URL: "https://{{ REGISTRY_HOSTNAME }}"
+  # 32-byte session encryption key, hex-encoded (64 hex characters). Generate one with: openssl rand -hex 32
+  # If left blank, the app falls back to a key stored in the database.
+  SESSION_KEY: ""
+  # Secret used to AES-256 encrypt sensitive data at rest. The application refuses to start
+  # while this is unset or left as the default "CHANGEME". Generate a strong value with: openssl rand -hex 32
+  SECRET_KEY: "CHANGEME"
+  # PVC Size in Gigabytes for the application database/state volume
+  DATA_PVC_SIZE: 5
+  # PVC Size in Gigabytes for the collection/artifact cache volume
+  ARTIFACTS_PVC_SIZE: 20
+  # PVC Size in Gigabytes for the backing container image storage volume
+  CONTAINER_STORAGE_PVC_SIZE: 50
+
+    # TLS Certificate file, required when deploying HTTPS in K3s
+REGISTRY_TLS_CRT_PATH: "~/ascender.crt"
+
+    # TLS Private Key file, required when deploying HTTPS in K3s
+REGISTRY_TLS_KEY_PATH: "~/ascender.key"
+
+    # ---Reaqt install variables---
+
+    # Determines whether or not Reaqt will be installed
+REAQT_INSTALL: false
+
+    # DNS resolvable hostname for Reaqt service. This is required for install.
+REAQT_HOSTNAME: reaqt.example.com
+
+    # The Kubernetes namespace in which Reaqt objects will live
+REAQT_NAMESPACE: reaqt
+
+    # The OCI container image for the Reaqt web app
+REAQT_WEB_IMAGE: depot.ciq.com/ascender-pro/ascender-reaqt-images/ascender-reaqt/web
+
+    # The number of reaqt web pods - this is good to ensure high availability
+reaqt_web_replicas: 1
+
+    # The OCI container image for the Reaqt Listener
+REAQT_LISTENER_IMAGE: depot.ciq.com/ascender-pro/ascender-reaqt-images/ascender-reaqt/listener
+
+    # The OCI container image for the Reaqt Database
+REAQT_DB_IMAGE: depot.ciq.com/ascender-pro/ascender-reaqt-images/ascender-reaqt/db
+
+    # The image tag indicating the version of Reaqt you wish to install
+REAQT_VERSION: latest
+
+    # Unique, stable identifier the listener uses to register itself.
+    # Each additional listener deployment needs its own unique value.
+REAQT_LISTENER_UID: listener-primary
+
+    # Human-readable name for the listener
+REAQT_LISTENER_NAME: "Primary Listener"
+
+    # Shared bearer token the listener presents to the web app's /api/listener API.
+    # Must be a strong, non-default value in production.
+REAQT_LISTENER_API_TOKEN: "changeme-listener-api-token"
+
+    # Session cookie encryption key (hex-encoded 32-byte/64 hex character value).
+    # Leave blank to let the web app generate and persist its own. Generate with: openssl rand -hex 32
+REAQT_SESSION_KEY: ""
+
+    # Encrypts stored provider credentials at rest (hex-encoded 32-byte/64 hex character value).
+    # Leave blank to let the web app generate and persist its own, but it MUST be set explicitly
+    # if the listener runs on a different host than the web app. Generate with: openssl rand -hex 32
+REAQT_SECRET_KEY: ""
+
+    # Uncomment these to use an external database for Reaqt
+#REAQT_DB_HOST: ascender-reaqt-db
+#REAQT_DB_PORT: "3306"
+#REAQT_DB_NAME: "reaqt"
+#REAQT_DB_USERNAME: "ascender"
+
+    # Size of the Persistent Volume Claim for Reaqt's database in GB
+    # Only uncomment on new installs or with storage classes that support volume expansion
+#REAQT_PVC_SIZE_GB: 10
+    # Storage Class for the Persistent Volume Claim for Reaqt's database
+    # Only uncomment to set a specific storage class on new installs
+    # Leaving blank will use the default storage class of the cluster
+#REAQT_PVC_STORAGE_CLASS: ""
+
+    # Password for the Reaqt database user
+REAQT_DB_PASSWORD: "mydbpassword"
+
+    # Root password for the Reaqt database (only used when deploying the built-in database)
+REAQT_DB_ROOT_PASSWORD: "mydbrootpassword"
+
+    # Storage Class for the Persistent Volume Claims used by the Ascender Registry
+    # Only uncomment to set a specific storage class on new installs
+    # Leaving blank will use the default storage class of the cluster
+#REGISTRY_PVC_STORAGE_CLASS: ""

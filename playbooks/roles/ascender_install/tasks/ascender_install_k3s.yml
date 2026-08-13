@@ -11,12 +11,12 @@
     verify_ssl: false
     state: present
     
-- name: Generate manifest to install AWX Operator
+- name: Generate manifest to install Ascender Operator
   ansible.builtin.template:
     src: templates/ascender-operator/kustomization.j2
     dest: "{{ tmp_dir }}/kustomization.yml"
 
-- name: Generate manifest to install AWX Operator with timestamp attached, for purposes of operator deletion later
+- name: Generate manifest to install Ascender Operator with timestamp attached, for purposes of operator deletion later
   ansible.builtin.template:
     src: templates/ascender-operator/kustomization.j2
     dest: "{{ tmp_dir }}/kustomization.yml.{{ ansible_date_time.iso8601_basic_short }}"
@@ -36,7 +36,7 @@
     - "{{ playbook_dir }}/../offline/images/ascender-operator*.tar"
   when: k8s_offline | default(false) | bool
 
-- name: Install AWX Operator with Kustomize
+- name: Install Ascender Operator with Kustomize
   kubernetes.core.k8s:
     definition: "{{ lookup('kubernetes.core.kustomize', dir=tmp_dir) }}"
     verify_ssl: false
@@ -91,6 +91,7 @@
     state: present
     definition: "{{ lookup('ansible.builtin.template', 'ascender-deployment/ascender-deployment-k3s.yml') }}"
     verify_ssl: false
+  register: ascender_apply_result
 
 - name: Wait for ascender-app-web Deployment to complete setting up (this may take up to 10 minutes)
   kubernetes.core.k8s_info:
@@ -101,6 +102,29 @@
     wait_sleep: 10
     wait_timeout: 360
     verify_ssl: false
+
+- name: Restart Ascender deployments to pull latest image
+  kubernetes.core.k8s:
+    state: present
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ item }}"
+    namespace: "{{ ASCENDER_NAMESPACE }}"
+    definition:
+      spec:
+        template:
+          metadata:
+            annotations:
+              kubectl.kubernetes.io/restartedAt: "{{ ansible_date_time.iso8601 }}"
+    merge_type:
+      - strategic-merge
+    verify_ssl: false
+  loop:
+    - ascender-app-web
+    - ascender-app-task
+  when:
+    - ASCENDER_VERSION | lower == "latest"
+    - not ascender_apply_result.changed
 
 - name: Set the Ascender URL
   ansible.builtin.set_fact:

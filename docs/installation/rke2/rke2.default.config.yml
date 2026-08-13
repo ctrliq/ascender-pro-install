@@ -37,9 +37,9 @@ ASCENDER_ADMIN_PASSWORD: "myadminpassword"
 # The OCI container image for Ascender
 ASCENDER_IMAGE: ghcr.io/ctrliq/ascender
 # The image tag indicating the version of Ascender you wish to install
-ASCENDER_VERSION: 25.3.6
-# The version of the AWX Operator used to install Ascender and its components
-ASCENDER_OPERATOR_VERSION: 2.19.5
+ASCENDER_VERSION: 25.5.1
+# The version of the Ascender Operator used to install Ascender and its components
+ASCENDER_OPERATOR_VERSION: 25.5.1
 # Determines whether to keep the secrets required to encrypt within Ascender (important when backing up)
 ascender_garbage_collect_secrets: false
 # External PostgreSQL database name used for Ascender (this DB must exist)
@@ -51,15 +51,15 @@ LEDGER_INSTALL: true
 # DNS resolvable hostname for Ledger service. This is required for install
 LEDGER_HOSTNAME: ledger.example.com
 # The OCI container image for Ledger
-LEDGER_WEB_IMAGE: ghcr.io/ctrliq/ascender-ledger/ledger-web
+LEDGER_WEB_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-web
 # Number of replicas for the Ledger web container
 ledger_web_replicas: 1
 # The OCI container image for Ledger Parser
-LEDGER_PARSER_IMAGE: ghcr.io/ctrliq/ascender-ledger/ledger-parser
+LEDGER_PARSER_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-parser
 # Number of replicas for the Ledger Parser container
 ledger_parser_replicas: 1
 # The OCI container image for Ledger DB
-LEDGER_DB_IMAGE: ghcr.io/ctrliq/ascender-ledger/ledger-db
+LEDGER_DB_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-db
 # The image tag indicating the version of Ledger you wish to install
 LEDGER_VERSION: latest
 # The Kubernetes namespace in which Ledger objects will live

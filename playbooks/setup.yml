@@ -9,13 +9,21 @@
 - name: Install Ascender
   ansible.builtin.import_playbook: install_ascender.yml
 
-- name: Install Ascender React
-  ansible.builtin.import_playbook: install_react.yml
-  when: REACT_INSTALL
-
 - name: Install Ledger
   ansible.builtin.import_playbook: install_ledger.yml
   when: LEDGER_INSTALL
+
+- name: Install Proxy
+  ansible.builtin.import_playbook: install_proxy.yml
+  when: PROXY_INSTALL
+
+- name: Install Registry
+  ansible.builtin.import_playbook: install_registry.yml
+  when: REGISTRY_INSTALL
+
+- name: Install Reaqt
+  ansible.builtin.import_playbook: install_reaqt.yml
+  when: REAQT_INSTALL
 
 - name: Configure Initial Playbooks
   ansible.builtin.import_playbook: setup_playbooks.yml

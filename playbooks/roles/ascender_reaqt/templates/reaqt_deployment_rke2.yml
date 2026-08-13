@@ -1,0 +1,502 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ascender-reaqt-config
+  namespace: {{ REAQT_NAMESPACE }}
+data:
+  # Web app / listener ports (must match the containerPorts below).
+  APP_PORT: "8080"
+  LISTENER_PORT: "5002"
+  # Production disables template hot-reload and enforces stricter startup checks.
+  ENVIRONMENT: "production"
+  DEBUG: "false"
+  LOG_LEVEL: "info"
+  # Database connection (host is the in-cluster MariaDB Service name, unless an
+  # external database was configured via REAQT_DB_HOST).
+  DB_HOST: "{{ REAQT_DB_HOST }}"
+  DB_PORT: "{{ REAQT_DB_PORT }}"
+  DB_NAME: "{{ REAQT_DB_NAME }}"
+  DB_USER: "{{ REAQT_DB_USERNAME }}"
+  # Listener self-registration. Each distinct listener deployment needs a unique,
+  # stable LISTENER_UID so it registers itself exactly once.
+  LISTENER_UID: "{{ REAQT_LISTENER_UID }}"
+  LISTENER_NAME: "{{ REAQT_LISTENER_NAME }}"
+  # URL the web app uses to reach the listener for cache-reload notifications,
+  # and the URL the listener advertises for itself. Both point at the listener
+  # Service inside the cluster.
+  LISTENER_URL: "http://ascender-reaqt-listener:5002"
+  LISTENER_ADVERTISE_URL: "http://ascender-reaqt-listener:5002"
+  # The listener has no database access: it reads its configuration and writes
+  # registration, heartbeats, event logs and metrics through the web app's
+  # token-authenticated /api/listener API. In production this must be the TLS
+  # ingress URL so the API token and configuration travel encrypted.
+  WEB_API_URL: "{{ k8s_lb_protocol }}://{{ REAQT_HOSTNAME }}"
+  # Require https for WEB_API_URL in production. Only "true" for a trusted
+  # network where TLS is terminated upstream and WEB_API_URL is plain-http.
+  WEB_API_ALLOW_INSECURE: "{{ 'false' if k8s_lb_protocol == 'https' else 'true' }}"
+---
+# Database credentials.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ascender-reaqt-db
+  namespace: {{ REAQT_NAMESPACE }}
+type: Opaque
+stringData:
+  # Password for the application database user (DB_USER above).
+  DB_PASSWORD: "{{ REAQT_DB_PASSWORD }}"
+  # MariaDB root password (used only for administration / schema init of the
+  # built-in database).
+  DB_ROOT_PASSWORD: "{{ REAQT_DB_ROOT_PASSWORD }}"
+---
+# Initial web-UI admin password. Applied by the db image on first start only
+# (fresh data volume). Reuses the same admin password as Ascender itself.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ascender-reaqt-admin
+  namespace: {{ REAQT_NAMESPACE }}
+type: Opaque
+stringData:
+  ADMIN_PASSWORD: "{{ ASCENDER_ADMIN_PASSWORD }}"
+---
+# Encryption keys and shared tokens used by the web app and listener.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ascender-reaqt-keys
+  namespace: {{ REAQT_NAMESPACE }}
+type: Opaque
+stringData:
+  SESSION_KEY: "{{ REAQT_SESSION_KEY | default('') }}"
+  SECRET_KEY: "{{ REAQT_SECRET_KEY | default('') }}"
+  LISTENER_API_TOKEN: "{{ REAQT_LISTENER_API_TOKEN }}"
+{% if REAQT_DB_HOST == "ascender-reaqt-db" %}
+---
+# MariaDB persistent storage. ReadWriteOnce because a single MariaDB instance is
+# the only writer.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ascender-reaqt-db-data
+  namespace: {{ REAQT_NAMESPACE }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ REAQT_PVC_SIZE_GB | default('10') }}Gi
+---
+# MariaDB deployment. Recreate strategy + ReadWriteOnce volume => single writer.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ascender-reaqt-db
+  namespace: {{ REAQT_NAMESPACE }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: ascender-reaqt-db
+  template:
+    metadata:
+      labels:
+        app: ascender-reaqt-db
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        # 999 is the mysql uid/gid in the official mariadb image.
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mariadb
+          image: {{ REAQT_DB_IMAGE }}:{{ REAQT_VERSION }}
+          imagePullPolicy: {{ ascender_image_pull_policy | default("Always") }}
+          args:
+            - "--character-set-server=utf8mb4"
+            - "--collation-server=utf8mb4_unicode_ci"
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ascender-reaqt-db
+                  key: DB_ROOT_PASSWORD
+            - name: MYSQL_DATABASE
+              valueFrom:
+                configMapKeyRef:
+                  name: ascender-reaqt-config
+                  key: DB_NAME
+            - name: MYSQL_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: ascender-reaqt-config
+                  key: DB_USER
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ascender-reaqt-db
+                  key: DB_PASSWORD
+            # Initial web-UI admin password (applied on first init only).
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ascender-reaqt-admin
+                  key: ADMIN_PASSWORD
+          ports:
+            - name: mysql
+              containerPort: 3306
+              protocol: TCP
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+            - name: run
+              mountPath: /run/mysqld
+            - name: tmp
+              mountPath: /tmp
+          readinessProbe:
+            exec:
+              command:
+                - /usr/local/bin/healthcheck.sh
+                - --connect
+                - --innodb_initialized
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: mysql
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+          startupProbe:
+            exec:
+              command:
+                - /usr/local/bin/healthcheck.sh
+                - --connect
+            failureThreshold: 60
+            periodSeconds: 2
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            capabilities:
+              drop:
+                - ALL
+{% if DEPOT_REGISTRY is defined %}
+      imagePullSecrets:
+        - name: ascender-reaqt-pull-secret
+{% endif %}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ascender-reaqt-db-data
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ascender-reaqt-db
+  namespace: {{ REAQT_NAMESPACE }}
+spec:
+  type: ClusterIP
+  selector:
+    app: ascender-reaqt-db
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: mysql
+{% endif %}
+---
+# Event listener. Receives events, matches rule sets, dispatches to providers.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ascender-reaqt-listener
+  namespace: {{ REAQT_NAMESPACE }}
+spec:
+  # Keep at 1 replica: each listener needs a unique LISTENER_UID. To scale, run
+  # additional listener Deployments with their own UID/config.
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: ascender-reaqt-listener
+  template:
+    metadata:
+      labels:
+        app: ascender-reaqt-listener
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: listener
+          image: {{ REAQT_LISTENER_IMAGE }}:{{ REAQT_VERSION }}
+          imagePullPolicy: {{ ascender_image_pull_policy | default("Always") }}
+          envFrom:
+            - configMapRef:
+                name: ascender-reaqt-config
+          env:
+            # SECRET_KEY lets the listener decrypt provider secrets it receives
+            # (as ciphertext) from the web API; it must match the web app's key.
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ascender-reaqt-keys
+                  key: SECRET_KEY
+            # Bearer token presented to the web app's /api/listener API.
+            - name: LISTENER_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ascender-reaqt-keys
+                  key: LISTENER_API_TOKEN
+          ports:
+            - name: http
+              containerPort: 5002
+              protocol: TCP
+          # readinessProbe:
+          #   # /readyz reports 200 while up and surfaces a "degraded" status when
+          #   # provider secrets cannot be decrypted (SECRET_KEY missing/mismatch).
+          #   httpGet:
+          #     path: /readyz
+          #     port: http
+          #   initialDelaySeconds: 5
+          #   periodSeconds: 10
+          #   timeoutSeconds: 2
+          # livenessProbe:
+          #   httpGet:
+          #     path: /healthz
+          #     port: http
+          #   initialDelaySeconds: 10
+          #   periodSeconds: 30
+          #   timeoutSeconds: 2
+          # startupProbe:
+          #   httpGet:
+          #     path: /healthz
+          #     port: http
+          #   failureThreshold: 30
+          #   periodSeconds: 2
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop:
+                - ALL
+{% if DEPOT_REGISTRY is defined %}
+      imagePullSecrets:
+        - name: ascender-reaqt-pull-secret
+{% endif %}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ascender-reaqt-listener
+  namespace: {{ REAQT_NAMESPACE }}
+spec:
+  type: ClusterIP
+  selector:
+    app: ascender-reaqt-listener
+  ports:
+    - name: http
+      port: 5002
+      targetPort: http
+---
+# Web management UI/API.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ascender-reaqt-web
+  namespace: {{ REAQT_NAMESPACE }}
+spec:
+  replicas: {{ reaqt_web_replicas | default(1) }}
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: ascender-reaqt-web
+  template:
+    metadata:
+      labels:
+        app: ascender-reaqt-web
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: web
+          image: {{ REAQT_WEB_IMAGE }}:{{ REAQT_VERSION }}
+          imagePullPolicy: {{ ascender_image_pull_policy | default("Always") }}
+          envFrom:
+            - configMapRef:
+                name: ascender-reaqt-config
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ascender-reaqt-db
+                  key: DB_PASSWORD
+            - name: SESSION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ascender-reaqt-keys
+                  key: SESSION_KEY
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ascender-reaqt-keys
+                  key: SECRET_KEY
+            # Shared bearer token the web app requires on the /api/listener API.
+            - name: LISTENER_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ascender-reaqt-keys
+                  key: LISTENER_API_TOKEN
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          # readinessProbe:
+          #   httpGet:
+          #     path: /login
+          #     port: http
+          #   initialDelaySeconds: 5
+          #   periodSeconds: 10
+          #   timeoutSeconds: 2
+          # livenessProbe:
+          #   httpGet:
+          #     path: /login
+          #     port: http
+          #   initialDelaySeconds: 10
+          #   periodSeconds: 30
+          #   timeoutSeconds: 2
+          # startupProbe:
+          #   httpGet:
+          #     path: /login
+          #     port: http
+          #   failureThreshold: 30
+          #   periodSeconds: 2
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            capabilities:
+              drop:
+                - ALL
+{% if DEPOT_REGISTRY is defined %}
+      imagePullSecrets:
+        - name: ascender-reaqt-pull-secret
+{% endif %}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ascender-reaqt-web
+  namespace: {{ REAQT_NAMESPACE }}
+spec:
+  type: ClusterIP
+  selector:
+    app: ascender-reaqt-web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+{% if k8s_lb_protocol == 'https'  %}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ascender-reaqt-tls
+  namespace: {{ REAQT_NAMESPACE }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ lookup('ansible.builtin.file', tls_crt_path) | b64encode }}
+  tls.key: {{ lookup('ansible.builtin.file', tls_key_path) | b64encode }}
+{% endif %}
+---
+# Ingress exposing the web UI. The listener is intentionally NOT exposed here;
+# route event traffic to it separately if it must be reachable externally.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ascender-reaqt
+  namespace: {{ REAQT_NAMESPACE }}
+spec:
+  rules:
+    - host: {{ REAQT_HOSTNAME }}
+      http:
+        paths:
+{% if k8s_lb_protocol == 'https'  %}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ascender-reaqt-web
+                port:
+                  number: 80
+  tls:
+    - hosts:
+      - {{ REAQT_HOSTNAME }}
+      secretName: ascender-reaqt-tls
+{% else %}
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: ascender-reaqt-web
+              port:
+                number: 80
+{% endif %}

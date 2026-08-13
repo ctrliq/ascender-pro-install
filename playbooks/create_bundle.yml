@@ -11,15 +11,15 @@
         tag: "{{ ASCENDER_VERSION }}"
         type: ascender
       - name: ledger-web
-        path: "{{ LEDGER_WEB_IMAGE | default('ghcr.io/ctrliq/ascender-ledger/ledger-web') }}"
+        path: "{{ LEDGER_WEB_IMAGE | default('depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-web') }}"
         tag: "{{ LEDGER_VERSION | default('latest') }}"
         type: ledger
       - name: ledger-parser
-        path: "{{ LEDGER_PARSER_IMAGE | default('ghcr.io/ctrliq/ascender-ledger/ledger-parser') }}"
+        path: "{{ LEDGER_PARSER_IMAGE | default('depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-parser') }}"
         tag: "{{ LEDGER_VERSION | default('latest') }}"
         type: ledger
       - name: ledger-db
-        path: "{{ LEDGER_DB_IMAGE | default('ghcr.io/ctrliq/ascender-ledger/ledger-db') }}"
+        path: "{{ LEDGER_DB_IMAGE | default('depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-db') }}"
         tag: "{{ LEDGER_VERSION | default('latest') }}"
         type: ledger
       - name: ascender-operator
@@ -28,7 +28,7 @@
         type: ascender
       - name: ascender-ee
         path: ghcr.io/ctrliq/ascender-ee
-        tag: latest
+        tag: "{{ ASCENDER_VERSION }}"
         type: ascender
       - name: postgres
         path: quay.io/sclorg/postgresql-15-c9s
@@ -42,6 +42,30 @@
         path: quay.io/brancz/kube-rbac-proxy
         tag: v0.21.0
         type: ascender
+      - name: galaxy-proxy
+        path: "{{ PROXY_IMAGE | default('depot.ciq.com/ascender-pro/ascender-galaxy-proxy-images/ascender-galaxy-proxy') }}"
+        tag: "{{ PROXY_VERSION | default('latest') }}"
+        type: proxy
+      - name: registry
+        path: "{{ REGISTRY_IMAGE | default('depot.ciq.com/ascender-pro/ascender-registry-images/ascender-registry') }}"
+        tag: "{{ REGISTRY_VERSION | default('latest') }}"
+        type: registry
+      - name: registry-storage
+        path: registry
+        tag: "2"
+        type: registry
+      - name: reaqt-web
+        path: "{{ REAQT_WEB_IMAGE | default('depot.ciq.com/ascender-pro/ascender-reaqt-images/ascender-reaqt/web') }}"
+        tag: "{{ REAQT_VERSION | default('latest') }}"
+        type: reaqt
+      - name: reaqt-listener
+        path: "{{ REAQT_LISTENER_IMAGE | default('depot.ciq.com/ascender-pro/ascender-reaqt-images/ascender-reaqt/listener') }}"
+        tag: "{{ REAQT_VERSION | default('latest') }}"
+        type: reaqt
+      - name: reaqt-db
+        path: "{{ REAQT_DB_IMAGE | default('depot.ciq.com/ascender-pro/ascender-reaqt-images/ascender-reaqt/db') }}"
+        tag: "{{ REAQT_VERSION | default('latest') }}"
+        type: reaqt
     rpms:
       - kubectl
       - python3-kubernetes
@@ -227,13 +251,12 @@
 
         - name: Log into CIQ registry
           community.docker.docker_login:
-            registry_url: "{{ LEDGER_REGISTRY.BASE }}"
-            username: "{{ LEDGER_REGISTRY.USERNAME }}"
-            password: "{{ LEDGER_REGISTRY.PASSWORD }}"
+            registry_url: "{{ DEPOT_REGISTRY.BASE }}"
+            username: "{{ DEPOT_REGISTRY.USERNAME }}"
+            password: "{{ DEPOT_REGISTRY.PASSWORD }}"
             reauthorize: true
           when: 
-            - LEDGER_REGISTRY.BASE is defined
-            - LEDGER_INSTALL == true
+            - DEPOT_REGISTRY.BASE is defined
 
         - name: Pull images and create archives
           community.docker.docker_image:
@@ -244,7 +267,7 @@
             source: pull
           when: 
             - item.name ~ '-' ~ item.tag ~ '.tar' not in images
-            - item.type == 'ascender' or (item.type == 'ledger' and LEDGER_INSTALL == true)
+            - item.type == 'ascender' or (item.type == 'ledger' and LEDGER_INSTALL == true) or (item.type == 'proxy' and PROXY_INSTALL == true) or (item.type == 'registry' and REGISTRY_INSTALL == true) or (item.type == 'reaqt' and REAQT_INSTALL == true)
           loop: "{{ containers }}"
 
         - name: Save Docker images
@@ -252,7 +275,7 @@
             cmd: docker save {{ item.path }}:{{ item.tag }} > {{ image_dir }}/{{ item.name }}-{{ item.tag }}.tar
           when: 
             - item.name ~ '-' ~ item.tag ~ '.tar' not in images
-            - item.type == 'ascender' or (item.type == 'ledger' and LEDGER_INSTALL == true)
+            - item.type == 'ascender' or (item.type == 'ledger' and LEDGER_INSTALL == true) or (item.type == 'proxy' and PROXY_INSTALL == true) or (item.type == 'registry' and REGISTRY_INSTALL == true) or (item.type == 'reaqt' and REAQT_INSTALL == true)
           loop: "{{ containers }}"
 
     - name: "RKE2 : Download Images"
@@ -297,18 +320,18 @@
                 tag: "{{ item.tag }}"
                 source: pull
               loop: "{{ containers }}"
-              when: item.type == 'ascender' or (item.type == 'ledger' and LEDGER_INSTALL == true)
+              when: item.type == 'ascender' or (item.type == 'ledger' and LEDGER_INSTALL == true) or (item.type == 'proxy' and PROXY_INSTALL == true) or (item.type == 'registry' and REGISTRY_INSTALL == true) or (item.type == 'reaqt' and REAQT_INSTALL == true)
 
             - name: Tag images
               community.docker.docker_image_tag:
                 name: "{{ item.path }}:{{ item.tag }}"
                 repository: "{{ k8s_container_registry | regex_replace('\\/$', '') }}/{{ item.path | basename }}:{{ item.tag }}"
               loop: "{{ containers }}"
-              when: item.type == 'ascender' or (item.type == 'ledger' and LEDGER_INSTALL == true)
+              when: item.type == 'ascender' or (item.type == 'ledger' and LEDGER_INSTALL == true) or (item.type == 'proxy' and PROXY_INSTALL == true) or (item.type == 'registry' and REGISTRY_INSTALL == true) or (item.type == 'reaqt' and REAQT_INSTALL == true)
 
             - name: Push images
               community.docker.docker_image_push:
                 name: "{{ k8s_container_registry | regex_replace('\\/$', '') }}/{{ item.path | basename }}"
                 tag: "{{ item.tag }}"
               loop: "{{ containers }}"
-              when: item.type == 'ascender' or (item.type == 'ledger' and LEDGER_INSTALL == true)
+              when: item.type == 'ascender' or (item.type == 'ledger' and LEDGER_INSTALL == true) or (item.type == 'proxy' and PROXY_INSTALL == true) or (item.type == 'registry' and REGISTRY_INSTALL == true) or (item.type == 'reaqt' and REAQT_INSTALL == true)

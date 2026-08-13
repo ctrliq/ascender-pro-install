@@ -41,12 +41,12 @@ LEDGER_INSTALL: true
     # DNS resolvable hostname for Ledger service. This is required for install.
 LEDGER_HOSTNAME: ledger.example.com
 
-    # Optional credentials for pulling the ledger image, all fields must be
-    # specified.
-#LEDGER_REGISTRY:
-#  BASE: depot.ciq.com
-#  USERNAME: username
-#  PASSWORD: password
+    # Credentials for pulling private images (Ledger and other CIQ apps), all
+    # fields must be specified.
+DEPOT_REGISTRY:
+  BASE: depot.ciq.com
+  USERNAME: username
+  PASSWORD: password
 
 # Admin password for Ledger (the username is admin by default)
 LEDGER_ADMIN_PASSWORD: "myadminpassword"

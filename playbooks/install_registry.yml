@@ -1,0 +1,31 @@
+# Copyright (c) 2026, Ctrl IQ, Inc. All rights reserved.
+
+- hosts: localhost
+  become: false
+  gather_facts: no
+
+  vars_files:
+    - ["../custom.config.yml", "../default.config.yml"]
+
+  environment:
+    K8S_AUTH_KUBECONFIG: "{{ lookup('env', 'HOME') }}/.kube/config"
+    NAMESPACE: "{{ REGISTRY_NAMESPACE }}"
+    PATH: "/usr/local/bin:{{ lookup('env', 'PATH') }}" #required as the aws cli lives at /usr/local/bin/aws
+
+  tasks:
+
+    - name: Create Namespace
+      kubernetes.core.k8s:
+        name: "{{ REGISTRY_NAMESPACE }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+        validate_certs: false
+
+    - name: "Run registry_install role for {{ k8s_platform }}"
+      ansible.builtin.include_role:
+        name: ascender_registry
+        tasks_from: "registry_install_{{ k8s_platform }}"
+
+    - ansible.builtin.debug:
+        msg: "Registry install complete."

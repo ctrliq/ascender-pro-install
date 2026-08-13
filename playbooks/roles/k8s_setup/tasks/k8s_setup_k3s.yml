@@ -125,11 +125,11 @@
     - use_etc_hosts
     - LEDGER_INSTALL
 
-- name: "Ensure a local DNS entry for {{ REACT_HOSTNAME }} exists"
+- name: "Ensure a local DNS entry for {{ PROXY_HOSTNAME }} exists"
   ansible.builtin.lineinfile:
     path: /etc/hosts
-    regexp: "{{ REACT_HOSTNAME }}"
-    line: "{{ k3s_master_node_ip }}   {{ REACT_HOSTNAME }}"
+    regexp: "{{ PROXY_HOSTNAME }}"
+    line: "{{ k3s_master_node_ip }}   {{ PROXY_HOSTNAME }}"
     owner: root
     group: root
     mode: '0644'
@@ -137,19 +137,32 @@
   delegate_to: localhost
   when:
     - use_etc_hosts
-    - REACT_INSTALL
+    - PROXY_INSTALL
 
-    
-# - name: "Ensure a local DNS entry for {{ LEDGER_HOSTNAME }} is removed is using external DNS"
-#   ansible.builtin.lineinfile:
-#     path: /etc/hosts
-#     regexp: "{{ LEDGER_HOSTNAME }}"
-#     state: absent
-#     owner: root
-#     group: root
-#     mode: '0644'
-#   become: true
-#   delegate_to: localhost
-#   when: 
-#     - not use_etc_hosts
-#     - LEDGER_INSTALL
+- name: "Ensure a local DNS entry for {{ REGISTRY_HOSTNAME }} exists"
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "{{ REGISTRY_HOSTNAME }}"
+    line: "{{ k3s_master_node_ip }}   {{ REGISTRY_HOSTNAME }}"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  delegate_to: localhost
+  when:
+    - use_etc_hosts
+    - REGISTRY_INSTALL
+
+- name: "Ensure a local DNS entry for {{ REAQT_HOSTNAME }} exists"
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: "{{ REAQT_HOSTNAME }}"
+    line: "{{ k3s_master_node_ip }}   {{ REAQT_HOSTNAME }}"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  delegate_to: localhost
+  when:
+    - use_etc_hosts
+    - REAQT_INSTALL

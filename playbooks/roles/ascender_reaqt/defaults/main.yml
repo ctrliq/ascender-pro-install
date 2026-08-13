@@ -1,0 +1,14 @@
+reaqt_service_account_name: ascender-reaqt
+
+# Host for Reaqt database. Leave as the default to deploy and use the built-in
+# database; set to an external hostname to use an external database instead.
+REAQT_DB_HOST: ascender-reaqt-db
+
+# Port for Reaqt database
+REAQT_DB_PORT: "3306"
+
+# Name for Reaqt database
+REAQT_DB_NAME: "reaqt"
+
+# Username for Reaqt database
+REAQT_DB_USERNAME: "ascender"

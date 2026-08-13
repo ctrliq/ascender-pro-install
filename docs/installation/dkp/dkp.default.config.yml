@@ -50,10 +50,10 @@ ASCENDER_ADMIN_PASSWORD: "myadminpassword"
 ASCENDER_IMAGE: ghcr.io/ctrliq/ascender
 
 # The image tag indicating the version of Ascender you wish to install
-ASCENDER_VERSION: 25.3.6
+ASCENDER_VERSION: 25.5.1
 
-# The version of the AWX Operator used to install Ascender and its components
-ASCENDER_OPERATOR_VERSION: 2.19.5
+# The version of the Ascender Operator used to install Ascender and its components
+ASCENDER_OPERATOR_VERSION: 25.5.1
 
 # Determines whether to keep the secrets required to encrypt within Ascender (important when backing up)
 ascender_garbage_collect_secrets: true
@@ -88,19 +88,19 @@ LEDGER_INSTALL: true
 LEDGER_HOSTNAME: ledger.example.com
 
 # The OCI container image for Ledger
-LEDGER_WEB_IMAGE: ghcr.io/ctrliq/ascender-ledger/ledger-web
+LEDGER_WEB_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-web
 
 # The number of ledger web pods - this is good to ensure high availability
 ledger_web_replicas: 1
 
 # The OCI container image for the Ledger Parser
-LEDGER_PARSER_IMAGE: ghcr.io/ctrliq/ascender-ledger/ledger-parser
+LEDGER_PARSER_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-parser
 
 # The number of ledger parser pods - this is good to ensure high availability
 ledger_parser_replicas: 1
 
 # The OCI container image for the Ledger Database
-LEDGER_DB_IMAGE: ghcr.io/ctrliq/ascender-ledger/ledger-db
+LEDGER_DB_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-db
 
 # The image tag indicating the version of Ledger you wish to install
 LEDGER_VERSION: latest
