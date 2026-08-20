@@ -1,7 +1,7 @@
 - name: Prompt whether to install Ledger
   ansible.builtin.include_tasks: menu_choice.yml
   vars:
-    config_vars_menu_prompt: "Boolean indicating whether to install Ledger:"
+    config_vars_menu_prompt: "Whether to install Ledger:"
     config_vars_menu_options_display: "{{ config_vars_boolean_options_display }}"
     config_vars_menu_options_value: "{{ config_vars_boolean_options_value }}"
     config_vars_menu_target: LEDGER_INSTALL
@@ -25,6 +25,7 @@
       prompt:
         prompt: "Enter your selection [{{ config_data.ledger_web_replicas }}]: "
       register: config_vars_ledger_web_replicas
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the Ledger web replicas
       vars:
@@ -32,11 +33,13 @@
         ledger_web_replicas_value: "{{ config_vars_ledger_web_replicas.user_input | trim | default(ledger_web_replicas_default, true) | int }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'ledger_web_replicas': ledger_web_replicas_value}, recursive=True) }}"
+      when: CONFIG_ADVANCED | bool
 
     - name: "Number of replicas for the Ledger Parser container"
       prompt:
         prompt: "Enter your selection [{{ config_data.ledger_parser_replicas }}]: "
       register: config_vars_ledger_parser_replicas
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the Ledger parser replicas
       vars:
@@ -44,6 +47,7 @@
         ledger_parser_replicas_value: "{{ config_vars_ledger_parser_replicas.user_input | trim | default(ledger_parser_replicas_default, true) | int }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'ledger_parser_replicas': ledger_parser_replicas_value}, recursive=True) }}"
+      when: CONFIG_ADVANCED | bool
 
     - name: "The image tag indicating the version of Ledger you wish to install"
       prompt:
@@ -92,7 +96,7 @@
         config_data: "{{ config_data | combine({'LEDGER_ADMIN_PASSWORD': ledger_admin_password_value}, recursive=True) }}"
       no_log: true
 
-    - name: "Password for Ledger database"
+    - name: "Password for Ledger database (leave blank to generate a random one)"
       prompt:
         prompt: "Enter your selection [hidden]: "
         echo: false
@@ -106,11 +110,13 @@
       retries: "{{ config_vars_prompt_retries }}"
       delay: "{{ config_vars_prompt_delay }}"
       no_log: true
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the Ledger database password
       vars:
-        ledger_db_password_default: "{{ config_data.LEDGER_DB_PASSWORD }}"
-        ledger_db_password_value: "{{ config_vars_ledger_db_password.user_input | trim | default(ledger_db_password_default, true) }}"
+        ledger_db_password_default: "{{ config_data.LEDGER_DB_PASSWORD | default('') }}"
+        ledger_db_password_input: "{{ (config_vars_ledger_db_password.user_input | default('', true)) | trim | default(ledger_db_password_default, true) }}"
+        ledger_db_password_value: "{{ ledger_db_password_input if ledger_db_password_input not in ['', 'mydbpassword'] else lookup('ansible.builtin.password', '/dev/null', length=24, chars=['ascii_letters', 'digits']) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'LEDGER_DB_PASSWORD': ledger_db_password_value}, recursive=True) }}"
       no_log: true

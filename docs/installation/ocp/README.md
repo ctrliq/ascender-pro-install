@@ -30,7 +30,6 @@ If you have not done so already, be sure to follow the general prerequisites fou
 - These instructions require an existing OCP cluster with proper authentication configured
   - The installer will not set up OCP for you - you must have an existing, accessible cluster
   - Ensure you have administrative access to the cluster via `oc` or `kubectl` commands
-  - The `kube_install` variable should be set to `false` for OCP installations
 - SSL Certificate and TLS Configuration
   - OpenShift Container Platform handles SSL/TLS termination through Routes
   - If you set `k8s_lb_protocol` to `http`, the installer will configure OCP Routes to use edge
@@ -76,7 +75,6 @@ You can edit this file manually if you want to change variables before (re)insta
 
 **Important:** When configuring for OCP:
 - Set `k8s_platform` to `ocp`
-- Set `kube_install` to `false` (the installer will not install OCP for you)
 - Ensure your `kubeconfig` file is properly configured to access your OCP cluster
 
 ### Run the setup script

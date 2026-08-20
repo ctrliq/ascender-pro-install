@@ -1,7 +1,7 @@
 ---
 # This variable specificies which Kubernetes platform Ascender and its components will be installed on.
 k8s_platform: aks
-# Boolean indicating whether or not the kubeconfig file needs to be downloaded to the Ansible controller
+# Whether or not the kubeconfig file needs to be downloaded to the Ansible controller
 download_kubeconfig: true
 # Determines whether to use HTTP or HTTPS for Ascender and Ledger.
 # If set to https, you MUST provide certificate/key options for the Installer to use.

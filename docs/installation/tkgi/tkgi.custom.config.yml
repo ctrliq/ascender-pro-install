@@ -2,7 +2,6 @@
 # ---Kubernetes-specific variables---
 
 k8s_platform: tkgi
-kube_install: false
 k8s_lb_protocol: http
 use_etc_hosts: true
 

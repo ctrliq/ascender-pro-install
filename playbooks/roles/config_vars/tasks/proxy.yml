@@ -1,7 +1,7 @@
 - name: Prompt whether to install the Ascender Galaxy Proxy
   ansible.builtin.include_tasks: menu_choice.yml
   vars:
-    config_vars_menu_prompt: "Boolean indicating whether to install the Ascender Galaxy Proxy:"
+    config_vars_menu_prompt: "Whether to install the Ascender Galaxy Proxy:"
     config_vars_menu_options_display: "{{ config_vars_boolean_options_display }}"
     config_vars_menu_options_value: "{{ config_vars_boolean_options_value }}"
     config_vars_menu_target: PROXY_INSTALL
@@ -37,6 +37,7 @@
       prompt:
         prompt: "Enter your selection [{{ config_data.PROXY_CONFIG.QUERY_CACHE_EXPIRE | default('1') }}]: "
       register: config_vars_proxy_query_cache_expire
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the proxy query cache expiry
       vars:
@@ -44,11 +45,13 @@
         proxy_query_cache_expire_value: "{{ config_vars_proxy_query_cache_expire.user_input | trim | default(proxy_query_cache_expire_default, true) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'PROXY_CONFIG': (config_data.PROXY_CONFIG | default({})) | combine({'QUERY_CACHE_EXPIRE': proxy_query_cache_expire_value}, recursive=True)}, recursive=True) }}"
+      when: CONFIG_ADVANCED | bool
 
     - name: "Number of days to keep cached artifact downloads before expiring them"
       prompt:
         prompt: "Enter your selection [{{ config_data.PROXY_CONFIG.ARTIFACT_CACHE_EXPIRE | default('30') }}]: "
       register: config_vars_proxy_artifact_cache_expire
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the proxy artifact cache expiry
       vars:
@@ -56,11 +59,13 @@
         proxy_artifact_cache_expire_value: "{{ config_vars_proxy_artifact_cache_expire.user_input | trim | default(proxy_artifact_cache_expire_default, true) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'PROXY_CONFIG': (config_data.PROXY_CONFIG | default({})) | combine({'ARTIFACT_CACHE_EXPIRE': proxy_artifact_cache_expire_value}, recursive=True)}, recursive=True) }}"
+      when: CONFIG_ADVANCED | bool
 
     - name: "Comma-separated list of trusted proxy IPs"
       prompt:
         prompt: "Enter your selection [{{ config_data.PROXY_CONFIG.TRUSTED_PROXIES | default('') }}]: "
       register: config_vars_proxy_trusted_proxies
+      when: CONFIG_ADVANCED | bool
 
     - name: Save trusted proxy IPs
       vars:
@@ -68,11 +73,13 @@
         proxy_trusted_proxies_value: "{{ config_vars_proxy_trusted_proxies.user_input | trim | default(proxy_trusted_proxies_default, true) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'PROXY_CONFIG': (config_data.PROXY_CONFIG | default({})) | combine({'TRUSTED_PROXIES': proxy_trusted_proxies_value}, recursive=True)}, recursive=True) }}"
+      when: CONFIG_ADVANCED | bool
 
     - name: "Public proxy URL used in rewritten links"
       prompt:
         prompt: "Enter your selection [{{ config_data.PROXY_CONFIG.URL | default('https://{{ PROXY_HOSTNAME }}') }}]: "
       register: config_vars_proxy_url
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the proxy URL
       vars:
@@ -80,11 +87,13 @@
         proxy_url_value: "{{ config_vars_proxy_url.user_input | trim | default(proxy_url_default, true) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'PROXY_CONFIG': (config_data.PROXY_CONFIG | default({})) | combine({'URL': proxy_url_value}, recursive=True)}, recursive=True) }}"
+      when: CONFIG_ADVANCED | bool
 
     - name: "Upstream Galaxy server to proxy requests to"
       prompt:
         prompt: "Enter your selection [{{ config_data.PROXY_CONFIG.UPSTREAM_BASEURL | default('https://galaxy.ansible.com') }}]: "
       register: config_vars_proxy_upstream_baseurl
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the upstream Galaxy base URL
       vars:
@@ -92,11 +101,12 @@
         proxy_upstream_baseurl_value: "{{ config_vars_proxy_upstream_baseurl.user_input | trim | default(proxy_upstream_baseurl_default, true) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'PROXY_CONFIG': (config_data.PROXY_CONFIG | default({})) | combine({'UPSTREAM_BASEURL': proxy_upstream_baseurl_value}, recursive=True)}, recursive=True) }}"
+      when: CONFIG_ADVANCED | bool
 
     - name: Prompt whether to clear the proxy cache on startup
       ansible.builtin.include_tasks: menu_choice.yml
       vars:
-        config_vars_menu_prompt: "Boolean indicating whether to clear the cache directory on startup:"
+        config_vars_menu_prompt: "Whether to clear the cache directory on startup:"
         config_vars_menu_options_display: "{{ config_vars_boolean_options_display }}"
         config_vars_menu_options_value: "{{ ['1', '0'] }}"
         config_vars_menu_target: CLEAR_CACHE_ON_START
@@ -104,11 +114,13 @@
         config_vars_menu_target_child: CLEAR_CACHE_ON_START
         config_vars_menu_default_display: "{{ 'true' if (config_data.PROXY_CONFIG.CLEAR_CACHE_ON_START | default('0')) in ['1', 'true', 'True'] else 'false' }}"
         config_vars_menu_default_value: "{{ '1' if (config_data.PROXY_CONFIG.CLEAR_CACHE_ON_START | default('0')) in ['1', 'true', 'True'] else '0' }}"
+      when: CONFIG_ADVANCED | bool
 
     - name: "Maximum number of API responses to keep in the in-memory cache"
       prompt:
         prompt: "Enter your selection [{{ config_data.PROXY_CONFIG.MEM_CACHE_SIZE | default('2000') }}]: "
       register: config_vars_proxy_mem_cache_size
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the proxy memory cache size
       vars:
@@ -116,11 +128,13 @@
         proxy_mem_cache_size_value: "{{ config_vars_proxy_mem_cache_size.user_input | trim | default(proxy_mem_cache_size_default, true) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'PROXY_CONFIG': (config_data.PROXY_CONFIG | default({})) | combine({'MEM_CACHE_SIZE': proxy_mem_cache_size_value}, recursive=True)}, recursive=True) }}"
+      when: CONFIG_ADVANCED | bool
 
     - name: "Optional outbound HTTP proxy for upstream calls"
       prompt:
         prompt: "Enter your selection [{{ config_data.PROXY_CONFIG.HTTP_PROXY | default('') }}]: "
       register: config_vars_proxy_http_proxy
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the outbound HTTP proxy
       vars:
@@ -128,6 +142,7 @@
         proxy_http_proxy_value: "{{ config_vars_proxy_http_proxy.user_input | trim | default(proxy_http_proxy_default, true) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'PROXY_CONFIG': (config_data.PROXY_CONFIG | default({})) | combine({'HTTP_PROXY': proxy_http_proxy_value}, recursive=True)}, recursive=True) }}"
+      when: CONFIG_ADVANCED | bool
 
     - name: "API token required for authentication to the proxy"
       prompt:
@@ -143,6 +158,7 @@
       retries: "{{ config_vars_prompt_retries }}"
       delay: "{{ config_vars_prompt_delay }}"
       no_log: true
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the proxy API token
       vars:
@@ -151,4 +167,5 @@
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'PROXY_CONFIG': (config_data.PROXY_CONFIG | default({})) | combine({'GALAXY_API_TOKEN': proxy_galaxy_api_token_value}, recursive=True)}, recursive=True) }}"
       no_log: true
+      when: CONFIG_ADVANCED | bool
   when: config_data.PROXY_INSTALL | bool

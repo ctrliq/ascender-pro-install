@@ -1,7 +1,7 @@
 ---
 # This variable specificies which Kubernetes platform Ascender and its components will be installed on.
 k8s_platform: gke
-# Boolean indicating whether or not the kubeconfig file needs to be downloaded to the Ansible controller
+# Whether or not the kubeconfig file needs to be downloaded to the Ansible controller
 download_kubeconfig: true
 # Determines whether to use HTTP or HTTPS for Ascender and Ledger.
 # If set to https, you MUST provide certificate/key options for the Installer to use.
@@ -54,7 +54,7 @@ ASCENDER_OPERATOR_VERSION: 25.5.1
 ascender_garbage_collect_secrets: false
 # External PostgreSQL database name used for Ascender (this DB must exist)
 ascender_replicas: 1
-# Boolean indicating whether to add standard playbooks into Ascender after installation
+# Whether to add standard playbooks into Ascender after installation
 ascender_setup_playbooks: false
 # Determines whether or not Ledger will be installed
 LEDGER_INSTALL: true

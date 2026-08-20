@@ -30,11 +30,9 @@ If you have not done so already, be sure to follow the general prerequisites fou
   - CPUs: 2
   - Memory: 8GB (if installing both Ascender and Ledger)
   - 20GB of free disk (for Ascender and Ledger Volumes)
-- These instructions accommodate an existing K3s cluster, or will set up a new one on your behalf if
-  necessary. This behavior is determined by the variable `kube_install`
-  - If `kube_install` is set to true, the installer will set up K3s on the `ascender_host`in the
-    inventory file. (`ascender_host` can be localhost)
-  - If `kube_install` is set to false, the installer will not perform a K3s install
+- These instructions require an existing K3s cluster. The installer does not set up
+  Kubernetes for you; install K3s on the `ascender_host` beforehand. (`ascender_host`
+  can be localhost)
 - SSL Certificate and Key
   - To enable HTTPS on your website, you need to provide the Ascender installer with an SSL
     Certificate file, and a Private Key file. While these can be self-signed certificates, it is

@@ -1,7 +1,7 @@
 - name: Prompt whether to install the Ascender Registry
   ansible.builtin.include_tasks: menu_choice.yml
   vars:
-    config_vars_menu_prompt: "Boolean indicating whether to install the Ascender Registry:"
+    config_vars_menu_prompt: "Whether to install the Ascender Registry:"
     config_vars_menu_options_display: "{{ config_vars_boolean_options_display }}"
     config_vars_menu_options_value: "{{ config_vars_boolean_options_value }}"
     config_vars_menu_target: REGISTRY_INSTALL
@@ -48,7 +48,7 @@
     - name: Prompt whether to enable debug logging for the Ascender Registry
       ansible.builtin.include_tasks: menu_choice.yml
       vars:
-        config_vars_menu_prompt: "Boolean indicating whether to enable debug logging:"
+        config_vars_menu_prompt: "Whether to enable debug logging:"
         config_vars_menu_options_display: "{{ config_vars_boolean_options_display }}"
         config_vars_menu_options_value: "{{ config_vars_boolean_options_value }}"
         config_vars_menu_target: DEBUG
@@ -56,11 +56,13 @@
         config_vars_menu_target_child: DEBUG
         config_vars_menu_default_display: "{{ 'true' if (config_data.REGISTRY_CONFIG.DEBUG | default('false')) in ['1', 'true', 'True'] else 'false' }}"
         config_vars_menu_default_value: "{{ 'true' if (config_data.REGISTRY_CONFIG.DEBUG | default('false')) in ['1', 'true', 'True'] else 'false' }}"
+      when: CONFIG_ADVANCED | bool
 
     - name: "Public base URL used for security headers"
       prompt:
         prompt: "Enter your selection [{{ config_data.REGISTRY_CONFIG.URL | default('https://{{ REGISTRY_HOSTNAME }}') }}]: "
       register: config_vars_registry_url
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the registry URL
       vars:
@@ -68,6 +70,7 @@
         registry_url_value: "{{ config_vars_registry_url.user_input | trim | default(registry_url_default, true) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REGISTRY_CONFIG': (config_data.REGISTRY_CONFIG | default({})) | combine({'URL': registry_url_value}, recursive=True)}, recursive=True) }}"
+      when: CONFIG_ADVANCED | bool
 
     - name: "PVC size in Gigabytes for the application database/state volume"
       prompt:
@@ -93,7 +96,7 @@
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REGISTRY_CONFIG': (config_data.REGISTRY_CONFIG | default({})) | combine({'ARTIFACTS_PVC_SIZE': registry_artifacts_pvc_size_value}, recursive=True)}, recursive=True) }}"
 
-    - name: "PVC size in Gigabytes for the backing container image storage volume"
+    - name: "PVC size in Gigabytes for the container image storage volume"
       prompt:
         prompt: "Enter your selection [{{ config_data.REGISTRY_CONFIG.CONTAINER_STORAGE_PVC_SIZE | default('50') }}]: "
       register: config_vars_registry_container_storage_pvc_size
@@ -119,16 +122,17 @@
       retries: "{{ config_vars_prompt_retries }}"
       delay: "{{ config_vars_prompt_delay }}"
       no_log: true
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the registry session key
       vars:
         registry_session_key_default: "{{ config_data.REGISTRY_CONFIG.SESSION_KEY | default('') }}"
-        registry_session_key_value: "{{ config_vars_registry_session_key.user_input | trim | default(registry_session_key_default, true) }}"
+        registry_session_key_value: "{{ (config_vars_registry_session_key.user_input | default('', true)) | trim | default(registry_session_key_default, true) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REGISTRY_CONFIG': (config_data.REGISTRY_CONFIG | default({})) | combine({'SESSION_KEY': registry_session_key_value}, recursive=True)}, recursive=True) }}"
       no_log: true
 
-    - name: "Secret key used to encrypt sensitive data at rest (must not be left as CHANGEME)"
+    - name: "Secret key used to encrypt sensitive data at rest (leave blank to generate a random one)"
       prompt:
         prompt: "Enter your selection [hidden]: "
         echo: false
@@ -137,16 +141,18 @@
         '"' not in (
           (config_vars_registry_secret_key.user_input | default('', true) | trim)
           if (config_vars_registry_secret_key.user_input | default('', true) | trim) != ''
-          else (config_data.REGISTRY_CONFIG.SECRET_KEY | default('CHANGEME'))
+          else (config_data.REGISTRY_CONFIG.SECRET_KEY | default(''))
         )
       retries: "{{ config_vars_prompt_retries }}"
       delay: "{{ config_vars_prompt_delay }}"
       no_log: true
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the registry secret key
       vars:
-        registry_secret_key_default: "{{ config_data.REGISTRY_CONFIG.SECRET_KEY | default('CHANGEME') }}"
-        registry_secret_key_value: "{{ config_vars_registry_secret_key.user_input | trim | default(registry_secret_key_default, true) }}"
+        registry_secret_key_default: "{{ config_data.REGISTRY_CONFIG.SECRET_KEY | default('') }}"
+        registry_secret_key_input: "{{ (config_vars_registry_secret_key.user_input | default('', true)) | trim | default(registry_secret_key_default, true) }}"
+        registry_secret_key_value: "{{ registry_secret_key_input if registry_secret_key_input not in ['', 'CHANGEME'] else lookup('ansible.builtin.password', '/dev/null', length=64, chars=['0123456789abcdef']) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REGISTRY_CONFIG': (config_data.REGISTRY_CONFIG | default({})) | combine({'SECRET_KEY': registry_secret_key_value}, recursive=True)}, recursive=True) }}"
       no_log: true

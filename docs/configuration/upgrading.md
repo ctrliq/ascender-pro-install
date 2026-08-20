@@ -18,12 +18,6 @@ Upgrading Ascender is a straightforward process that involves updating the conta
 Open your `custom.config.yml` file and verify or set the following values:
 
 ```yaml
-kube_install: false
-```
-
-Since your Kubernetes cluster is already set up, you do **not** want to reinstall it.
-
-```yaml
 download_kubeconfig: false
 ```
 
@@ -102,7 +96,6 @@ kubectl rollout restart deployment/ascender-app-task -n ascender
 ## Example Configuration Snippet
 
 ```bash
-kube_install: false  
 download_kubeconfig: false  
 ASCENDER_VERSION: 25.5.1  
 image_pull_policy: Always
