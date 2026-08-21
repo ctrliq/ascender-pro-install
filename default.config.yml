@@ -14,14 +14,6 @@ k8s_lb_protocol: http
     # (This could be a Load Balancer if using 3 K8s control nodes)
 kubeapi_server_ip: "127.0.0.1"
 
-    # This value being set to "true" means that some work needs to be done to set up a
-    # cluster before proceeding. Here is ther behavior for different values of k8s_platforms:
-    # k3s: A single-node k3s cluster will be set up on the inventory server
-    #      named "ascender_host"
-    # eks: N/A, as this is handled by the EKS_CLUSTER_STATUS variable
-    # rke2: N/A, as you must use Labyrinth Labs' Ansible role to set up a fresh kubernetes cluster
-kube_install: false
-
     # Offline Install - Whether to use local assets to complete the install
 k8s_offline: false 
 
@@ -304,8 +296,6 @@ PROXY_INSTALL: false
 
 PROXY_HOSTNAME: galaxy-proxy.example.com
 
-PROXY_IMAGE: depot.ciq.com/ascender-pro/ascender-galaxy-proxy-images/ascender-galaxy-proxy
-
 PROXY_VERSION: latest
 
 PROXY_CONFIG:
@@ -369,7 +359,7 @@ REGISTRY_CONFIG:
   DATA_PVC_SIZE: 5
   # PVC Size in Gigabytes for the collection/artifact cache volume
   ARTIFACTS_PVC_SIZE: 20
-  # PVC Size in Gigabytes for the backing container image storage volume
+  # PVC Size in Gigabytes for the container image storage volume
   CONTAINER_STORAGE_PVC_SIZE: 50
 
     # TLS Certificate file, required when deploying HTTPS in K3s
@@ -389,17 +379,8 @@ REAQT_HOSTNAME: reaqt.example.com
     # The Kubernetes namespace in which Reaqt objects will live
 REAQT_NAMESPACE: reaqt
 
-    # The OCI container image for the Reaqt web app
-REAQT_WEB_IMAGE: depot.ciq.com/ascender-pro/ascender-reaqt-images/ascender-reaqt/web
-
     # The number of reaqt web pods - this is good to ensure high availability
 reaqt_web_replicas: 1
-
-    # The OCI container image for the Reaqt Listener
-REAQT_LISTENER_IMAGE: depot.ciq.com/ascender-pro/ascender-reaqt-images/ascender-reaqt/listener
-
-    # The OCI container image for the Reaqt Database
-REAQT_DB_IMAGE: depot.ciq.com/ascender-pro/ascender-reaqt-images/ascender-reaqt/db
 
     # The image tag indicating the version of Reaqt you wish to install
 REAQT_VERSION: latest

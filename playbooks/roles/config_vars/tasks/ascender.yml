@@ -2,6 +2,7 @@
   prompt:
     prompt: "Enter your selection [{{ config_data.tmp_dir }}]: "
   register: config_vars_tmp_dir
+  when: CONFIG_ADVANCED | bool
 
 - name: Save the temporary artifact directory
   vars:
@@ -9,6 +10,7 @@
     tmp_dir_value: "{{ config_vars_tmp_dir.user_input | trim | default(tmp_dir_default, true) }}"
   ansible.builtin.set_fact:
     config_data: "{{ config_data | combine({'tmp_dir': tmp_dir_value}, recursive=True) }}"
+  when: CONFIG_ADVANCED | bool
 
 - name: "DNS resolvable hostname for Ascender service"
   prompt:
@@ -108,14 +110,15 @@
 - name: Prompt whether to keep the secrets required to encrypt within Ascender
   ansible.builtin.include_tasks: menu_choice.yml
   vars:
-    config_vars_menu_prompt: "Boolean indicating whether to keep the secrets required to encrypt within Ascender (important when backing up):"
+    config_vars_menu_prompt: "Whether to keep the secrets required to encrypt within Ascender (important when backing up):"
     config_vars_menu_options_display: "{{ config_vars_boolean_options_display }}"
     config_vars_menu_options_value: "{{ config_vars_boolean_options_value }}"
     config_vars_menu_target: ascender_garbage_collect_secrets
     config_vars_menu_default_display: "{{ config_data.ascender_garbage_collect_secrets | bool | ternary('true', 'false') }}"
     config_vars_menu_default_value: "{{ config_data.ascender_garbage_collect_secrets | bool }}"
+  when: CONFIG_ADVANCED | bool
 
-- name: "Boolean indicating whether to use an external PostgreSQL database for Ascender:"
+- name: "Whether to use an external PostgreSQL database for Ascender:"
   vars:
     ascender_pgsql_host_current: "{{ config_data.ASCENDER_PGSQL_HOST | default('', true) }}"
     ascender_pgsql_host_current_is_set: "{{ (ascender_pgsql_host_current | trim | lower) not in ['', 'none'] }}"
@@ -238,6 +241,7 @@
   prompt:
     prompt: "Enter your selection [{{ config_data.ascender_replicas }}]: "
   register: config_vars_ascender_replicas
+  when: CONFIG_ADVANCED | bool
 
 - name: Save the number of Ascender replicas
   vars:
@@ -245,6 +249,7 @@
     ascender_replicas_value: "{{ config_vars_ascender_replicas.user_input | trim | default(ascender_replicas_default, true) | int }}"
   ansible.builtin.set_fact:
     config_data: "{{ config_data | combine({'ascender_replicas': ascender_replicas_value}, recursive=True) }}"
+  when: CONFIG_ADVANCED | bool
 
 - block:
     - name: Prompt for the Ascender image pull policy
@@ -261,7 +266,7 @@
 - name: Prompt whether to add standard playbooks into Ascender after installation
   ansible.builtin.include_tasks: menu_choice.yml
   vars:
-    config_vars_menu_prompt: "Boolean indicating whether to add standard playbooks into Ascender after installation:"
+    config_vars_menu_prompt: "Whether to add standard playbooks into Ascender after installation:"
     config_vars_menu_options_display: "{{ config_vars_boolean_options_display }}"
     config_vars_menu_options_value: "{{ config_vars_boolean_options_value }}"
     config_vars_menu_target: ascender_setup_playbooks

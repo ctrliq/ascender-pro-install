@@ -1,7 +1,7 @@
 - name: Prompt whether to install Reaqt
   ansible.builtin.include_tasks: menu_choice.yml
   vars:
-    config_vars_menu_prompt: "Boolean indicating whether to install Reaqt:"
+    config_vars_menu_prompt: "Whether to install Reaqt:"
     config_vars_menu_options_display: "{{ config_vars_boolean_options_display }}"
     config_vars_menu_options_value: "{{ config_vars_boolean_options_value }}"
     config_vars_menu_target: REAQT_INSTALL
@@ -25,6 +25,7 @@
       prompt:
         prompt: "Enter your selection [{{ config_data.reaqt_web_replicas }}]: "
       register: config_vars_reaqt_web_replicas
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the Reaqt web replicas
       vars:
@@ -32,6 +33,7 @@
         reaqt_web_replicas_value: "{{ config_vars_reaqt_web_replicas.user_input | trim | default(reaqt_web_replicas_default, true) | int }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'reaqt_web_replicas': reaqt_web_replicas_value}, recursive=True) }}"
+      when: CONFIG_ADVANCED | bool
 
     - name: "The image tag indicating the version of Reaqt you wish to install"
       prompt:
@@ -61,6 +63,7 @@
       prompt:
         prompt: "Enter your selection [{{ config_data.REAQT_LISTENER_UID }}]: "
       register: config_vars_reaqt_listener_uid
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the Reaqt listener UID
       vars:
@@ -68,11 +71,13 @@
         reaqt_listener_uid_value: "{{ config_vars_reaqt_listener_uid.user_input | trim | default(reaqt_listener_uid_default, true) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REAQT_LISTENER_UID': reaqt_listener_uid_value}, recursive=True) }}"
+      when: CONFIG_ADVANCED | bool
 
     - name: "Human-readable name for the Reaqt listener"
       prompt:
         prompt: "Enter your selection [{{ config_data.REAQT_LISTENER_NAME }}]: "
       register: config_vars_reaqt_listener_name
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the Reaqt listener name
       vars:
@@ -80,6 +85,7 @@
         reaqt_listener_name_value: "{{ config_vars_reaqt_listener_name.user_input | trim | default(reaqt_listener_name_default, true) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REAQT_LISTENER_NAME': reaqt_listener_name_value}, recursive=True) }}"
+      when: CONFIG_ADVANCED | bool
 
     - name: "Shared bearer token the Reaqt listener presents to the web app's API (leave blank to generate a random one)"
       prompt:
@@ -95,11 +101,12 @@
       retries: "{{ config_vars_prompt_retries }}"
       delay: "{{ config_vars_prompt_delay }}"
       no_log: true
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the Reaqt listener API token
       vars:
         reaqt_listener_api_token_default: "{{ config_data.REAQT_LISTENER_API_TOKEN }}"
-        reaqt_listener_api_token_input: "{{ config_vars_reaqt_listener_api_token.user_input | trim | default(reaqt_listener_api_token_default, true) }}"
+        reaqt_listener_api_token_input: "{{ (config_vars_reaqt_listener_api_token.user_input | default('', true)) | trim | default(reaqt_listener_api_token_default, true) }}"
         reaqt_listener_api_token_value: "{{ reaqt_listener_api_token_input if reaqt_listener_api_token_input not in ['', 'changeme-listener-api-token'] else lookup('ansible.builtin.password', '/dev/null', length=64, chars=['0123456789abcdef']) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REAQT_LISTENER_API_TOKEN': reaqt_listener_api_token_value}, recursive=True) }}"
@@ -119,11 +126,12 @@
       retries: "{{ config_vars_prompt_retries }}"
       delay: "{{ config_vars_prompt_delay }}"
       no_log: true
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the Reaqt session key
       vars:
         reaqt_session_key_default: "{{ config_data.REAQT_SESSION_KEY | default('') }}"
-        reaqt_session_key_input: "{{ config_vars_reaqt_session_key.user_input | trim | default(reaqt_session_key_default, true) }}"
+        reaqt_session_key_input: "{{ (config_vars_reaqt_session_key.user_input | default('', true)) | trim | default(reaqt_session_key_default, true) }}"
         reaqt_session_key_value: "{{ reaqt_session_key_input if reaqt_session_key_input != '' else lookup('ansible.builtin.password', '/dev/null', length=64, chars=['0123456789abcdef']) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REAQT_SESSION_KEY': reaqt_session_key_value}, recursive=True) }}"
@@ -143,17 +151,18 @@
       retries: "{{ config_vars_prompt_retries }}"
       delay: "{{ config_vars_prompt_delay }}"
       no_log: true
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the Reaqt secret key
       vars:
         reaqt_secret_key_default: "{{ config_data.REAQT_SECRET_KEY | default('') }}"
-        reaqt_secret_key_input: "{{ config_vars_reaqt_secret_key.user_input | trim | default(reaqt_secret_key_default, true) }}"
+        reaqt_secret_key_input: "{{ (config_vars_reaqt_secret_key.user_input | default('', true)) | trim | default(reaqt_secret_key_default, true) }}"
         reaqt_secret_key_value: "{{ reaqt_secret_key_input if reaqt_secret_key_input != '' else lookup('ansible.builtin.password', '/dev/null', length=64, chars=['0123456789abcdef']) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REAQT_SECRET_KEY': reaqt_secret_key_value}, recursive=True) }}"
       no_log: true
 
-    - name: "Password for the Reaqt database user"
+    - name: "Password for the Reaqt database user (leave blank to generate a random one)"
       prompt:
         prompt: "Enter your selection [hidden]: "
         echo: false
@@ -167,16 +176,18 @@
       retries: "{{ config_vars_prompt_retries }}"
       delay: "{{ config_vars_prompt_delay }}"
       no_log: true
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the Reaqt database password
       vars:
-        reaqt_db_password_default: "{{ config_data.REAQT_DB_PASSWORD }}"
-        reaqt_db_password_value: "{{ config_vars_reaqt_db_password.user_input | trim | default(reaqt_db_password_default, true) }}"
+        reaqt_db_password_default: "{{ config_data.REAQT_DB_PASSWORD | default('') }}"
+        reaqt_db_password_input: "{{ (config_vars_reaqt_db_password.user_input | default('', true)) | trim | default(reaqt_db_password_default, true) }}"
+        reaqt_db_password_value: "{{ reaqt_db_password_input if reaqt_db_password_input not in ['', 'mydbpassword'] else lookup('ansible.builtin.password', '/dev/null', length=24, chars=['ascii_letters', 'digits']) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REAQT_DB_PASSWORD': reaqt_db_password_value}, recursive=True) }}"
       no_log: true
 
-    - name: "Root password for the Reaqt database (only used when deploying the built-in database)"
+    - name: "Root password for the Reaqt database (only used when deploying the built-in database, leave blank to generate a random one)"
       prompt:
         prompt: "Enter your selection [hidden]: "
         echo: false
@@ -190,11 +201,13 @@
       retries: "{{ config_vars_prompt_retries }}"
       delay: "{{ config_vars_prompt_delay }}"
       no_log: true
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the Reaqt database root password
       vars:
-        reaqt_db_root_password_default: "{{ config_data.REAQT_DB_ROOT_PASSWORD }}"
-        reaqt_db_root_password_value: "{{ config_vars_reaqt_db_root_password.user_input | trim | default(reaqt_db_root_password_default, true) }}"
+        reaqt_db_root_password_default: "{{ config_data.REAQT_DB_ROOT_PASSWORD | default('') }}"
+        reaqt_db_root_password_input: "{{ (config_vars_reaqt_db_root_password.user_input | default('', true)) | trim | default(reaqt_db_root_password_default, true) }}"
+        reaqt_db_root_password_value: "{{ reaqt_db_root_password_input if reaqt_db_root_password_input not in ['', 'mydbrootpassword'] else lookup('ansible.builtin.password', '/dev/null', length=24, chars=['ascii_letters', 'digits']) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REAQT_DB_ROOT_PASSWORD': reaqt_db_root_password_value}, recursive=True) }}"
       no_log: true

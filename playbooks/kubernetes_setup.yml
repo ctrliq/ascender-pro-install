@@ -37,4 +37,3 @@
       ansible.builtin.include_role:
         name: k8s_setup
         tasks_from: "k8s_setup_{{ k8s_platform }}"
-      # when: kube_install 

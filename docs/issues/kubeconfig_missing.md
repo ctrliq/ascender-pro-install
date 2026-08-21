@@ -17,22 +17,14 @@ This error occurs because the variable `download_kubeconfig` is set to `true`, w
 This typically happens when:
 
 - The target system is a fresh install and Kubernetes (e.g., k3s) has not been installed yet.
-- The variable `kube_install` was not set to `true` during initial setup.
 
 ## Resolution Steps
 
 ### 1. Ensure Kubernetes Is Installed on the Target System
 
-If this is a new environment, Kubernetes has not yet been installed, and you are wanting to install k3s. Set the `kube_install` variable to `true` in your configuration and ensure `k8s_platform` is set to `k3s`.
-
-For example:
-
-```yaml
-k8s_platform: k3s
-kube_install: true
-```
-
-Then re-run setup.sh. This will trigger the installation of k3s, and the necessary kubeconfig will be generated on the target.
+This installer does not set up Kubernetes for you. If this is a new environment, install
+Kubernetes (e.g., k3s) on the target system first, then re-run setup.sh. Once a cluster
+is running on the target, the necessary kubeconfig will exist there and can be downloaded.
 
 ### 2. Alternatively, Disable Kubeconfig Download
 
@@ -47,7 +39,7 @@ This will skip the step that tries to retrieve the kubeconfig from the target sy
 ## Notes
 
 * This issue is common when running setup.sh against a brand-new host without any Kubernetes installation.
-* Ensure that either kube_install is enabled or a valid kubeconfig exists before setting download_kubeconfig: true.
+* Ensure that a valid kubeconfig exists on the target before setting download_kubeconfig: true.
 * The installer attempts to copy the config from /etc/rancher/k3s/k3s.yaml. If your config exists elsewhere, you may have to manually copy it over.
 * The installer will copy the config to ~/.kube/config
 

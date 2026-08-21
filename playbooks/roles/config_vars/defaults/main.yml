@@ -1,3 +1,8 @@
+# Advanced mode prompts for additional variables (encryption keys, internal
+# database passwords, etc.) that are otherwise hidden and auto-generated.
+# Overridden by the -a flag on config_vars.sh (passed as an extra var).
+CONFIG_ADVANCED: false
+
 config_vars_default_config_path: "{{ playbook_dir }}/../default.config.yml"
 config_vars_custom_config_path: "{{ playbook_dir }}/../custom.config.yml"
 config_vars_output_path: "{{ playbook_dir }}/../custom.config.yml"

@@ -41,7 +41,6 @@ $ cp docs/installation/tkgi/tkgi.custom.config.yml custom.config.yml
 Update your `custom.config.yml` with the values for your environment:
 
 - `k8s_platform: tkgi`
-- `kube_install: false`
 - `ASCENDER_HOSTNAME`
 - `ASCENDER_NAMESPACE`
 - `ASCENDER_ADMIN_PASSWORD`
