@@ -5,42 +5,42 @@
     config_vars_menu_options_display: "{{ config_vars_boolean_options_display }}"
     config_vars_menu_options_value: "{{ config_vars_boolean_options_value }}"
     config_vars_menu_target: REGISTRY_INSTALL
-    config_vars_menu_default_display: "{{ config_data.REGISTRY_INSTALL | bool | ternary('true', 'false') }}"
-    config_vars_menu_default_value: "{{ config_data.REGISTRY_INSTALL | bool }}"
+    config_vars_menu_default_display: "{{ config_data.REGISTRY_INSTALL | default(false) | bool | ternary('true', 'false') }}"
+    config_vars_menu_default_value: "{{ config_data.REGISTRY_INSTALL | default(false) | bool }}"
 
 - block:
     - name: "DNS resolvable hostname for the Ascender Registry"
       prompt:
-        prompt: "Enter your selection [{{ config_data.REGISTRY_HOSTNAME }}]: "
+        prompt: "Enter your selection [{{ config_data.REGISTRY_HOSTNAME | default('registry.example.com') }}]: "
       register: config_vars_registry_hostname
 
     - name: Save the registry hostname
       vars:
-        registry_hostname_default: "{{ config_data.REGISTRY_HOSTNAME }}"
+        registry_hostname_default: "{{ config_data.REGISTRY_HOSTNAME | default('registry.example.com') }}"
         registry_hostname_value: "{{ config_vars_registry_hostname.user_input | trim | default(registry_hostname_default, true) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REGISTRY_HOSTNAME': registry_hostname_value}, recursive=True) }}"
 
     - name: "The image tag indicating the version of the Ascender Registry"
       prompt:
-        prompt: "Enter your selection [{{ config_data.REGISTRY_VERSION }}]: "
+        prompt: "Enter your selection [{{ config_data.REGISTRY_VERSION | default('latest') }}]: "
       register: config_vars_registry_version
 
     - name: Save the registry version
       vars:
-        registry_version_default: "{{ config_data.REGISTRY_VERSION }}"
+        registry_version_default: "{{ config_data.REGISTRY_VERSION | default('latest') }}"
         registry_version_value: "{{ config_vars_registry_version.user_input | trim | default(registry_version_default, true) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REGISTRY_VERSION': registry_version_value}, recursive=True) }}"
 
     - name: "The Kubernetes namespace in which Registry objects will live"
       prompt:
-        prompt: "Enter your selection [{{ config_data.REGISTRY_NAMESPACE }}]: "
+        prompt: "Enter your selection [{{ config_data.REGISTRY_NAMESPACE | default('ascender-registry') }}]: "
       register: config_vars_registry_namespace
 
     - name: Save the registry namespace
       vars:
-        registry_namespace_default: "{{ config_data.REGISTRY_NAMESPACE }}"
+        registry_namespace_default: "{{ config_data.REGISTRY_NAMESPACE | default('ascender-registry') }}"
         registry_namespace_value: "{{ config_vars_registry_namespace.user_input | trim | default(registry_namespace_default, true) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REGISTRY_NAMESPACE': registry_namespace_value}, recursive=True) }}"
@@ -156,4 +156,4 @@
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'REGISTRY_CONFIG': (config_data.REGISTRY_CONFIG | default({})) | combine({'SECRET_KEY': registry_secret_key_value}, recursive=True)}, recursive=True) }}"
       no_log: true
-  when: config_data.REGISTRY_INSTALL | bool
+  when: config_data.REGISTRY_INSTALL | default(false) | bool
