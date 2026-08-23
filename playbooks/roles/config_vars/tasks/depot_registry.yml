@@ -6,7 +6,7 @@
   ansible.builtin.set_fact:
     config_data: "{{ config_data | combine({'DEPOT_REGISTRY': (config_data.DEPOT_REGISTRY | default({})) | combine({'BASE': 'depot.ciq.com'}, recursive=True)}, recursive=True) }}"
 
-- name: "Depot Registry username (get your credentials from portal.ciq.com)"
+- name: "Depot Registry username (get your credentials from https://portal.ciq.com/manage/token)"
   prompt:
     prompt: "Enter your selection [{{ config_data.DEPOT_REGISTRY.USERNAME | default('username') }}]: "
   register: config_vars_depot_registry_username
@@ -18,7 +18,7 @@
   ansible.builtin.set_fact:
     config_data: "{{ config_data | combine({'DEPOT_REGISTRY': (config_data.DEPOT_REGISTRY | default({})) | combine({'USERNAME': depot_registry_username_value}, recursive=True)}, recursive=True) }}"
 
-- name: "Depot Registry password (get your credentials from portal.ciq.com)"
+- name: "Depot Registry password (get your credentials from https://portal.ciq.com/manage/token)"
   prompt:
     prompt: "Enter your selection [hidden]: "
     echo: false
