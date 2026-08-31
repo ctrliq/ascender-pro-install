@@ -324,6 +324,9 @@ spec:
         - name: tmp
           emptyDir: {}
 ---
+# ClusterIP: the listener is reached in-cluster by the web app, and externally
+# through the dedicated listener Ingress below (a separate Ingress so it can
+# omit the web Ingress's rewrite-target and pass /api/events through unchanged).
 apiVersion: v1
 kind: Service
 metadata:
@@ -490,6 +493,40 @@ spec:
               port:
                 number: 80
           path: /
+          pathType: Prefix
+{% if k8s_lb_protocol == 'https' %}
+  tls:
+    - hosts:
+      - {{ REAQT_HOSTNAME }}
+      secretName: ascender-reaqt-tls
+{% endif %}
+---
+# Dedicated Ingress for the event listener. Separate from the web Ingress so it
+# can omit nginx's rewrite-target: the listener requires the full request path,
+# and /api/events (Prefix) forwards /api/events/<slug>/ through unchanged. Same
+# host as the web Ingress; nginx merges both and matches the longer prefix first.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+{% if k8s_lb_protocol == 'https' %}
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+{% endif %}
+  name: ascender-reaqt-listener
+  namespace: {{ REAQT_NAMESPACE }}
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: {{ REAQT_HOSTNAME }}
+      http:
+        paths:
+        - backend:
+            service:
+              name: ascender-reaqt-listener
+              port:
+                number: 5002
+          path: /api/events
           pathType: Prefix
 {% if k8s_lb_protocol == 'https' %}
   tls:
