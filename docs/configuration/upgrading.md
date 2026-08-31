@@ -24,10 +24,10 @@ download_kubeconfig: false
 You already have a working kubeconfig and don't need to re-download it.
 
 ```yaml
-ASCENDER_VERSION: 25.5.1
+ASCENDER_VERSION: 25.6.0
 ```
 
-Replace `25.5.1` with the version you want to upgrade to. The list of available versions is here: 
+Replace `25.6.0` with the version you want to upgrade to. The list of available versions is here: 
 
 [Ascender Releases](https://github.com/ctrliq/ascender/releases)
 
@@ -97,6 +97,6 @@ kubectl rollout restart deployment/ascender-app-task -n ascender
 
 ```bash
 download_kubeconfig: false  
-ASCENDER_VERSION: 25.5.1  
+ASCENDER_VERSION: 25.6.0  
 image_pull_policy: Always
 ```
