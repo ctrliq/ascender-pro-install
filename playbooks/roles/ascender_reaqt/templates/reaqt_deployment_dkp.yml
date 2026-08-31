@@ -324,6 +324,8 @@ spec:
         - name: tmp
           emptyDir: {}
 ---
+# ClusterIP: the listener is reached in-cluster by the web app, and externally
+# through the shared Ingress below, which routes /api/events to this Service.
 apiVersion: v1
 kind: Service
 metadata:
@@ -467,8 +469,10 @@ data:
   tls.key: {{ lookup('ansible.builtin.file', tls_key_path) | b64encode }}
 {% endif %}
 ---
-# Ingress exposing the web UI. The listener is intentionally NOT exposed here;
-# route event traffic to it separately if it must be reachable externally.
+# Ingress exposing both services on one host: /api/events is routed to the
+# event listener, everything else to the web UI/API. Traefik prioritises the
+# longer path prefix, so /api/events wins over /. The path is forwarded
+# unchanged, so the listener must serve its ingest endpoint under /api/events.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -481,18 +485,32 @@ spec:
       http:
         paths:
 {% if k8s_lb_protocol == 'https'  %}
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: ascender-reaqt-web
-                port:
-                  number: 80
+        - path: /api/events
+          pathType: Prefix
+          backend:
+            service:
+              name: ascender-reaqt-listener
+              port:
+                number: 5002
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: ascender-reaqt-web
+              port:
+                number: 80
   tls:
     - hosts:
       - {{ REAQT_HOSTNAME }}
       secretName: ascender-reaqt-tls
 {% else %}
+        - path: /api/events
+          pathType: Prefix
+          backend:
+            service:
+              name: ascender-reaqt-listener
+              port:
+                number: 5002
         - path: /
           pathType: Prefix
           backend:

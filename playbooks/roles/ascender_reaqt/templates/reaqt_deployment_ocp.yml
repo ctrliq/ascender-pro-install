@@ -324,13 +324,16 @@ spec:
         - name: tmp
           emptyDir: {}
 ---
+# Exposed via LoadBalancer so event sources outside the cluster can reach the
+# listener directly on port 5002. Restrict access to this port at the
+# network/firewall level: the listener endpoint is not authenticated.
 apiVersion: v1
 kind: Service
 metadata:
   name: ascender-reaqt-listener
   namespace: {{ REAQT_NAMESPACE }}
 spec:
-  type: ClusterIP
+  type: LoadBalancer
   selector:
     app: ascender-reaqt-listener
   ports:
