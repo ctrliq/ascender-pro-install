@@ -1,7 +1,7 @@
 # Ascender Pro Installer
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE.md)
-[![Ascender](https://img.shields.io/badge/ascender-25.6.0-blue.svg)](https://github.com/ctrliq/ascender)
+[![Ascender](https://img.shields.io/badge/ascender-25.6.1-blue.svg)](https://github.com/ctrliq/ascender)
 [![Platforms](https://img.shields.io/badge/platforms-8-blue.svg)](./docs/README.md)
 
 The enhanced Ascender installer for subscription customers. It deploys everything the standard [installer](https://github.com/ctrliq/ascender-install) does, and adds Reaqt, the Ascender Registry, and Depot registry support. You do not need an existing cluster or Kubernetes expertise, since the installer can provision one on your behalf for every supported platform.
