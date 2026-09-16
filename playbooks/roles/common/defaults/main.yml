@@ -1,0 +1,3 @@
+---
+# The name every platform template gives the deployment object.
+ascender_instance_name: ascender-app

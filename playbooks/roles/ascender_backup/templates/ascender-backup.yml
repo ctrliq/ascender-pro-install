@@ -1,5 +1,5 @@
-apiVersion: awx.ansible.com/v1beta1
-kind: AWXBackup
+apiVersion: {{ ascender_cr_api_version }}
+kind: {{ ascender_backup_kind }}
 metadata:
   name: ascender-backup-{{ ansible_date_time.date }}-{{ ansible_date_time.epoch }}
   namespace: {{ ASCENDER_NAMESPACE }}
