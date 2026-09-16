@@ -49,8 +49,8 @@ data:
   ldap-ca.crt: {{ lookup('ansible.builtin.file', custom_ldap_cacert) | b64encode }}
 {% endif %}
 ---
-apiVersion: awx.ansible.com/v1beta1
-kind: AWX
+apiVersion: {{ ascender_cr_api_version }}
+kind: {{ ascender_cr_kind }}
 metadata:
   name: ascender-app
   namespace: {{ ASCENDER_NAMESPACE }}

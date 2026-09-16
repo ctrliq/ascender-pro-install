@@ -2,6 +2,14 @@
 # Ascender DB Restore -- pull latest AWX backup from S3 and restore into Ascender
 # Each phase is tagged for --tags / --skip-tags control.
 # All tags run by default (no --tags = full restore).
+- name: Resolve which API kind this deployment is managed through
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: resolve_cr_kind
+  vars:
+    ascender_instance_name: "{{ ascender.instance }}"
+    ASCENDER_NAMESPACE: "{{ ascender.namespace }}"
+
 - block:
   - name: Prep environment
     ansible.builtin.include_tasks:
