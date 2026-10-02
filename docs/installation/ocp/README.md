@@ -194,6 +194,14 @@ A cluster administrator does the following once. `<namespace>` is your `ASCENDER
      - name: ghcr.io/ctrliq/ascender-operator
        newTag: <operator-version>
    namespace: <namespace>
+   patches:
+     - target:
+         kind: ClusterRoleBinding
+         name: awx-operator-proxy-rolebinding
+       patch: |-
+         - op: replace
+           path: /metadata/name
+           value: awx-operator-proxy-rolebinding-<namespace>
    EOF
 
    $ oc apply -k .
@@ -207,6 +215,14 @@ A cluster administrator does the following once. `<namespace>` is your `ASCENDER
    `name` matches nothing and the operator is deployed as `ghcr.io/ctrliq/ascender-operator:latest`.
    If the image comes from your own registry, add a `newName` line under `name`, for example
    `newName: registry.example.com/mirror/ascender-operator`.
+
+   The `patches` entry gives the operator's proxy `ClusterRoleBinding` a name that includes the
+   namespace. Without it, every namespace gets the same cluster-wide binding, and applying this
+   step for a second namespace replaces the first namespace's service account in it, so the
+   first operator loses the `tokenreviews` and `subjectaccessreviews` rights. The four
+   `CustomResourceDefinition`s and the two proxy `ClusterRole`s are still shared by every
+   install on the cluster, and they are identical for one operator version, so use the same
+   `<operator-version>` for every namespace on a cluster.
 
 2. Bind the `anyuid` SCC to the Ascender service account. The binding is cluster-wide, so its name
    includes the namespace: a fixed name would collide with the binding of another Ascender install
@@ -235,12 +251,28 @@ installs and its web interface and API work, but jobs fail with `Failed to extra
 directory on worker`, because the job pods run without `anyuid` (see the SCC notes above).
 
 Upgrading the operator (changing `ASCENDER_OPERATOR_VERSION`) and changing the CRDs stay
-administrator steps: repeat step 1. The namespace user can still change and re-apply the Ascender
-instance. Ledger is not covered by this mode, because its OCP install creates cluster-scoped
-objects, and the installer refuses to run with both `ocp_namespace_only` and `LEDGER_INSTALL` set.
+administrator steps: repeat step 1. The CRDs are shared by every namespace on the cluster, so
+repeat step 1, at the same version, in every namespace that runs an Ascender operator. The
+namespace user can still change and re-apply the Ascender instance.
+
+Ledger, Proxy, Registry and Reaqt are not covered by this mode, because their OCP installs create
+the namespace, which needs cluster scope (Ledger also creates other cluster-scoped objects), and
+they are not tested in this mode. The installer refuses to run with `ocp_namespace_only` and any of `LEDGER_INSTALL`, `PROXY_INSTALL`,
+`REGISTRY_INSTALL` or `REAQT_INSTALL` set.
 
 In this mode `tmp_dir` has no `kustomization.yml`, so to uninstall run only the
 `kubectl delete -f ascender-deployment-ocp.yml` step from the Uninstall section above. An
-administrator removes the operator.
+administrator removes the operator by deleting the namespace and that namespace's two
+cluster-wide bindings:
+
+```text
+$ oc delete namespace <namespace>
+$ oc delete clusterrolebinding awx-operator-proxy-rolebinding-<namespace> \
+    anyuid-scc-<namespace>-ascender-app-binding
+```
+
+Do not run `oc delete -k .` on the step 1 overlay while another namespace on the cluster still
+runs Ascender: it also deletes the shared CRDs, and deleting a CRD deletes every custom resource
+of that kind in the cluster.
 
 
