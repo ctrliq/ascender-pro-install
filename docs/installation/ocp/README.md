@@ -182,8 +182,7 @@ A cluster administrator does the following once. `<namespace>` is your `ASCENDER
 `<user>` is the person who runs the installer, who also needs the `admin` role on the project.
 
 1. Install the operator, its CRDs and its RBAC into the namespace. `<operator-version>` is the
-   installer's `ASCENDER_OPERATOR_VERSION` (and use its `k8s_container_registry` in the image name,
-   if you set one):
+   installer's `ASCENDER_OPERATOR_VERSION`:
 
    ```text
    $ cat > kustomization.yml <<EOF
@@ -198,12 +197,23 @@ A cluster administrator does the following once. `<namespace>` is your `ASCENDER
    EOF
 
    $ oc apply -k .
+
+   $ oc -n <namespace> wait --for=condition=Available deployment \
+       -l control-plane=controller-manager --timeout=300s
    ```
 
-2. Bind the `anyuid` SCC to the Ascender service account:
+   The installer stops if no operator replica is available, so wait for the operator before the
+   user runs it. Keep `name` as shown: it is the image that the operator manifests reference, so a different
+   `name` matches nothing and the operator is deployed as `ghcr.io/ctrliq/ascender-operator:latest`.
+   If the image comes from your own registry, add a `newName` line under `name`, for example
+   `newName: registry.example.com/mirror/ascender-operator`.
+
+2. Bind the `anyuid` SCC to the Ascender service account. The binding is cluster-wide, so its name
+   includes the namespace: a fixed name would collide with the binding of another Ascender install
+   on the same cluster.
 
    ```text
-   $ oc create clusterrolebinding anyuid-scc-ascender-app-binding \
+   $ oc create clusterrolebinding anyuid-scc-<namespace>-ascender-app-binding \
        --clusterrole=system:openshift:scc:anyuid --serviceaccount=<namespace>:ascender-app
    ```
 

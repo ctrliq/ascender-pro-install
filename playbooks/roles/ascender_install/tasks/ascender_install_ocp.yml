@@ -28,7 +28,8 @@
   ansible.builtin.set_fact:
     # k8s_info reports a missing CRD as success with api_found false, not as a failure
     ocp_cr_unusable: "{{ ocp_cr_check.resources is not defined or not (ocp_cr_check.api_found | default(true) | bool) }}"
-    ocp_operator_missing: "{{ (ocp_operator_check.resources | default([]) | length) == 0 }}"
+    # a Deployment that exists but has no available replica (scaled to zero, crash-looping) is not a running operator
+    ocp_operator_missing: "{{ (ocp_operator_check.resources | default([]) | map(attribute='status.availableReplicas', default=0) | select('gt', 0) | list | length) == 0 }}"
     ocp_cr_error: >-
       {{ (ocp_cr_check.msg | regex_search('[{]"kind":"Status".*?"code":[0-9]+[}]') | from_json).message
          if (ocp_cr_check.msg | default('') | regex_search('[{]"kind":"Status".*?"code":[0-9]+[}]'))
