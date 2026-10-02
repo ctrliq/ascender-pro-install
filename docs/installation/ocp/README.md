@@ -175,8 +175,10 @@ typically `ascender` and `ledger`).
 Use this when you only have a namespace on the OpenShift cluster, for example because another team
 administers it. Set `ocp_namespace_only: true` in `custom.config.yml`. The installer then skips
 everything that needs cluster scope (creating the namespace, installing the operator and its CRDs,
-binding the SCC), checks that the steps below were done, and runs the rest: it creates the Ascender
-secrets and custom resource in your namespace, waits for the web deployment, and checks the API.
+binding the SCC), checks that the Ascender custom resources can be listed and that an operator
+replica is available in the namespace, and runs the rest: it creates the Ascender secrets and
+custom resource in your namespace, waits for the web deployment, and checks the API. It cannot see
+the `anyuid` binding from step 2, so a passing check does not mean step 2 was done.
 
 A cluster administrator does the following once. `<namespace>` is your `ASCENDER_NAMESPACE`, and
 `<user>` is the person who runs the installer, who also needs the `admin` role on the project.
@@ -223,6 +225,14 @@ A cluster administrator does the following once. `<namespace>` is your `ASCENDER
    `CustomResourceDefinition`s and the two proxy `ClusterRole`s are still shared by every
    install on the cluster, and they are identical for one operator version, so use the same
    `<operator-version>` for every namespace on a cluster.
+
+   The overlay fetches the operator from `github.com`, so the machine that runs `oc apply -k .`
+   needs access to it. A disconnected install (`k8s_offline: true`) is not covered in this mode
+   and has not been tested. The offline bundle keeps the operator configuration at
+   `offline/ascender-operator-<operator-version>/config`, which is where the installer copies it
+   from in the default mode (`playbooks/roles/ascender_install/tasks/ascender_install_ocp.yml`),
+   so an administrator would point `resources` at a local copy of that directory and mirror the
+   image with `newName`.
 
 2. Bind the `anyuid` SCC to the Ascender service account. The binding is cluster-wide, so its name
    includes the namespace: a fixed name would collide with the binding of another Ascender install
