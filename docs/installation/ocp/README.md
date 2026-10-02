@@ -10,6 +10,7 @@ supported, please submit an issue to this Github repository.
 - [General Prerequisites](#general-prerequisites)
 - [OCP-specific Prerequisites](#ocp-specific-prerequisites)
 - [Install Instructions](#install-instructions)
+- [Namespace-only installs](#namespace-only-installs)
 
 ## General Prerequisites
 
@@ -168,5 +169,68 @@ $ kubectl delete namespace <LEDGER_NAMESPACE>  # optional if you have installed 
 
 Replace `<ASCENDER_NAMESPACE>` and `<LEDGER_NAMESPACE>` with the values you configured (default is
 typically `ascender` and `ledger`).
+
+## Namespace-only installs
+
+Use this when you only have a namespace on the OpenShift cluster, for example because another team
+administers it. Set `ocp_namespace_only: true` in `custom.config.yml`. The installer then skips
+everything that needs cluster scope (creating the namespace, installing the operator and its CRDs,
+binding the SCC), checks that the steps below were done, and runs the rest: it creates the Ascender
+secrets and custom resource in your namespace, waits for the web deployment, and checks the API.
+
+A cluster administrator does the following once. `<namespace>` is your `ASCENDER_NAMESPACE`, and
+`<user>` is the person who runs the installer, who also needs the `admin` role on the project.
+
+1. Install the operator, its CRDs and its RBAC into the namespace. `<operator-version>` is the
+   installer's `ASCENDER_OPERATOR_VERSION` (and use its `k8s_container_registry` in the image name,
+   if you set one):
+
+   ```text
+   $ cat > kustomization.yml <<EOF
+   apiVersion: kustomize.config.k8s.io/v1beta1
+   kind: Kustomization
+   resources:
+     - github.com/ctrliq/ascender-operator/config/default?ref=<operator-version>
+   images:
+     - name: ghcr.io/ctrliq/ascender-operator
+       newTag: <operator-version>
+   namespace: <namespace>
+   EOF
+
+   $ oc apply -k .
+   ```
+
+2. Bind the `anyuid` SCC to the Ascender service account:
+
+   ```text
+   $ oc create clusterrolebinding anyuid-scc-ascender-app-binding \
+       --clusterrole=system:openshift:scc:anyuid --serviceaccount=<namespace>:ascender-app
+   ```
+
+3. Let the user manage the Ascender custom resources in the namespace. The resource names below
+   are those of the `awx.ansible.com` group, which operator 25.6.2 serves; if your operator serves
+   a different group, use its matching resources:
+
+   ```text
+   $ oc -n <namespace> create role ascender-cr-editor --verb=get,list,watch,create,update,patch,delete \
+       --resource=awxs.awx.ansible.com,awxbackups.awx.ansible.com,awxrestores.awx.ansible.com
+
+   $ oc -n <namespace> create rolebinding ascender-cr-editor --role=ascender-cr-editor --user=<user>
+   ```
+
+Before the instance step the installer checks that the Ascender custom resources can be listed and
+that the operator is running in the namespace, and stops with the missing step if not. It cannot
+check step 2, because only an administrator can see SCC bindings. If step 2 is missing, Ascender
+installs and its web interface and API work, but jobs fail with `Failed to extract private data
+directory on worker`, because the job pods run without `anyuid` (see the SCC notes above).
+
+Upgrading the operator (changing `ASCENDER_OPERATOR_VERSION`) and changing the CRDs stay
+administrator steps: repeat step 1. The namespace user can still change and re-apply the Ascender
+instance. Ledger is not covered by this mode, because its OCP install creates cluster-scoped
+objects, and the installer refuses to run with both `ocp_namespace_only` and `LEDGER_INSTALL` set.
+
+In this mode `tmp_dir` has no `kustomization.yml`, so to uninstall run only the
+`kubectl delete -f ascender-deployment-ocp.yml` step from the Uninstall section above. An
+administrator removes the operator.
 
 

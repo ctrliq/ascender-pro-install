@@ -3,6 +3,49 @@
     gather_subset:
       - date_time
 
+- name: Check that the Ascender custom resources are reachable (namespace-only mode)
+  kubernetes.core.k8s_info:
+    api_version: "{{ ascender_cr_api_version | default('awx.ansible.com/v1beta1') }}"
+    kind: "{{ ascender_cr_kind | default('AWX') }}"
+    namespace: "{{ ASCENDER_NAMESPACE }}"
+    verify_ssl: false
+  register: ocp_cr_check
+  failed_when: false
+  when: ocp_namespace_only | default(false) | bool
+
+- name: Check that the Ascender operator is running in the namespace (namespace-only mode)
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    namespace: "{{ ASCENDER_NAMESPACE }}"
+    label_selectors:
+      - control-plane=controller-manager
+    verify_ssl: false
+  register: ocp_operator_check
+  failed_when: false
+  when: ocp_namespace_only | default(false) | bool
+
+- name: Work out what the namespace-only checks found
+  ansible.builtin.set_fact:
+    # k8s_info reports a missing CRD as success with api_found false, not as a failure
+    ocp_cr_unusable: "{{ ocp_cr_check.resources is not defined or not (ocp_cr_check.api_found | default(true) | bool) }}"
+    ocp_operator_missing: "{{ (ocp_operator_check.resources | default([]) | length) == 0 }}"
+    ocp_cr_error: >-
+      {{ (ocp_cr_check.msg | regex_search('[{]"kind":"Status".*?"code":[0-9]+[}]') | from_json).message
+         if (ocp_cr_check.msg | default('') | regex_search('[{]"kind":"Status".*?"code":[0-9]+[}]'))
+         else (ocp_cr_check.msg | default('') | truncate(300)) }}
+  when: ocp_namespace_only | default(false) | bool
+
+- name: Stop with the missing admin steps (namespace-only mode)
+  ansible.builtin.fail:
+    msg: >-
+      {{ (['ocp_namespace_only is true, but the one-time administrator steps are not complete in namespace ' ~ ASCENDER_NAMESPACE ~ '.']
+          + (['The Ascender custom resources cannot be used: ' ~ ocp_cr_error ~ '.'] if ocp_cr_unusable | bool else [])
+          + (['The Ascender operator is not running in the namespace.'] if ocp_operator_missing | bool else [])
+          + ['See "Namespace-only installs" in docs/installation/ocp/README.md.']) | join(' ') }}
+  when:
+    - ocp_namespace_only | default(false) | bool
+    - ocp_cr_unusable | bool or ocp_operator_missing | bool
+
 - name: Create Namespace
   kubernetes.core.k8s:
     name: "{{ ASCENDER_NAMESPACE }}"
@@ -10,33 +53,40 @@
     kind: Namespace
     verify_ssl: false
     state: present
+  when: not (ocp_namespace_only | default(false) | bool)
 
 - name: Generate manifest to install Ascender Operator
   ansible.builtin.template:
     src: templates/ascender-operator/kustomization.j2
     dest: "{{ tmp_dir }}/kustomization.yml"
+  when: not (ocp_namespace_only | default(false) | bool)
 
 - name: Generate manifest to install Ascender Operator with timestamp attached, for purposes of operator deletion later
   ansible.builtin.template:
     src: templates/ascender-operator/kustomization.j2
     dest: "{{ tmp_dir }}/kustomization.yml.{{ ansible_date_time.iso8601_basic_short }}"
+  when: not (ocp_namespace_only | default(false) | bool)
 
 - name: Copy Operator Source
   ansible.builtin.copy:
     src: "{{ playbook_dir }}/../offline/ascender-operator-{{ ASCENDER_OPERATOR_VERSION }}/config"
     dest: "{{ tmp_dir }}/"
     remote_src: true
-  when: k8s_offline | default(false) | bool
+  when:
+    - k8s_offline | default(false) | bool
+    - not (ocp_namespace_only | default(false) | bool)
 
 - name: Install Ascender Operator with Kustomize
   kubernetes.core.k8s:
     definition: "{{ lookup('kubernetes.core.kustomize', dir=tmp_dir) }}"
     verify_ssl: false
+  when: not (ocp_namespace_only | default(false) | bool)
 
 - name: Delete Kustomization file
   ansible.builtin.file:
     path: "{{ tmp_dir }}/kustomization.yml"
     state: absent
+  when: not (ocp_namespace_only | default(false) | bool)
 
 - name: Set service account variables
   ansible.builtin.set_fact:
@@ -67,6 +117,7 @@
         - kind: ServiceAccount
           name: "{{ service_account_name }}"
           namespace: "{{ ASCENDER_NAMESPACE }}"
+  when: not (ocp_namespace_only | default(false) | bool)
 
 - name: Wait for Operator deployment to be ready
   kubernetes.core.k8s_info:
