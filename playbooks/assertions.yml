@@ -17,6 +17,30 @@
         fail_msg: "LEDGER_HOSTNAME ({{ LEDGER_HOSTNAME }}) and ASCENDER_HOSTNAME ({{ ASCENDER_HOSTNAME }}) must be different"
       when: LEDGER_HOSTNAME is defined
 
+    - name: Verify that OCP namespace-only mode is not combined with Ledger
+      ansible.builtin.assert:
+        that:
+          - not (ocp_namespace_only | default(false) | bool and LEDGER_INSTALL | default(false) | bool)
+        fail_msg: >-
+          ocp_namespace_only does not cover Ledger, whose OCP install creates cluster-scoped
+          objects. Set LEDGER_INSTALL to false, or have a cluster administrator install Ledger.
+      when: k8s_platform == 'ocp'
+
+    - name: Verify that OCP namespace-only mode is not combined with Proxy, Registry or Reaqt
+      ansible.builtin.assert:
+        that:
+          - not (ocp_namespace_only | default(false) | bool and lookup('vars', item, default=false) | bool)
+        quiet: true
+        fail_msg: >-
+          ocp_namespace_only does not cover {{ item }}: its installer creates the namespace, which
+          needs cluster scope, and it is not tested in this mode. Set {{ item }} to false, or have
+          a cluster administrator install it.
+      loop:
+        - PROXY_INSTALL
+        - REGISTRY_INSTALL
+        - REAQT_INSTALL
+      when: k8s_platform == 'ocp'
+
 - hosts: ascender
   gather_facts: yes
   become: false

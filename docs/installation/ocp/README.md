@@ -10,6 +10,7 @@ supported, please submit an issue to this Github repository.
 - [General Prerequisites](#general-prerequisites)
 - [OCP-specific Prerequisites](#ocp-specific-prerequisites)
 - [Install Instructions](#install-instructions)
+- [Namespace-only installs](#namespace-only-installs)
 
 ## General Prerequisites
 
@@ -41,6 +42,27 @@ If you have not done so already, be sure to follow the general prerequisites fou
     installing server, and specify their locations in the config file with the variables
     `tls_crt_path` and `tls_key_path`, respectively. The installer will parse these files for their
     content, and use the content to create a Kubernetes TLS Secret for HTTPS enablement.
+- Security Context Constraints (SCC)
+  - The installer binds the `anyuid` SCC to the `ascender-app` service account with a
+    cluster-scoped `ClusterRoleBinding`. The `privileged` SCC is not requested for Ascender.
+    Ledger's install still binds both `privileged` and `anyuid` to its own service account.
+  - `anyuid` is needed for jobs, not for the Ascender pods: the job pods that the task pod creates
+    take their SCC from that service account, and without `anyuid` they get a random UID that
+    cannot write to `/runner` in the execution environment image, so jobs fail with `Failed to
+    extract private data directory on worker`.
+  - Installs made with an earlier version of the installer also have a
+    `privileged-scc-ascender-app-binding` binding, and `redis_capabilities` set in their Ascender
+    custom resource. Re-running this installer sets `redis_capabilities: []`, which makes the
+    operator restart the web and task pods once. The operator does this after the installer
+    returns, so it can take a minute or more: watch `oc -n <namespace> get pods` until the new
+    pods are Ready. Then delete the binding to drop `privileged`:
+
+    ```text
+    $ oc delete clusterrolebinding privileged-scc-ascender-app-binding
+    ```
+
+    Delete the binding only after that restart: while the old `redis_capabilities` is still in the
+    custom resource, new pods are rejected without `privileged`.
 
 ## Install and Upgrade Instructions
 
@@ -147,5 +169,120 @@ $ kubectl delete namespace <LEDGER_NAMESPACE>  # optional if you have installed 
 
 Replace `<ASCENDER_NAMESPACE>` and `<LEDGER_NAMESPACE>` with the values you configured (default is
 typically `ascender` and `ledger`).
+
+## Namespace-only installs
+
+Use this when you only have a namespace on the OpenShift cluster, for example because another team
+administers it. Set `ocp_namespace_only: true` in `custom.config.yml`. The installer then skips
+everything that needs cluster scope (creating the namespace, installing the operator and its CRDs,
+binding the SCC), checks that the Ascender custom resources can be listed and that an operator
+replica is available in the namespace, and runs the rest: it creates the Ascender secrets and
+custom resource in your namespace, waits for the web deployment, and checks the API. It cannot see
+the `anyuid` binding from step 2, so a passing check does not mean step 2 was done.
+
+A cluster administrator does the following once. `<namespace>` is your `ASCENDER_NAMESPACE`, and
+`<user>` is the person who runs the installer, who also needs the `admin` role on the project.
+
+1. Install the operator, its CRDs and its RBAC into the namespace. `<operator-version>` is the
+   installer's `ASCENDER_OPERATOR_VERSION`:
+
+   ```text
+   $ cat > kustomization.yml <<EOF
+   apiVersion: kustomize.config.k8s.io/v1beta1
+   kind: Kustomization
+   resources:
+     - github.com/ctrliq/ascender-operator/config/default?ref=<operator-version>
+   images:
+     - name: ghcr.io/ctrliq/ascender-operator
+       newTag: <operator-version>
+   namespace: <namespace>
+   patches:
+     - target:
+         kind: ClusterRoleBinding
+         name: awx-operator-proxy-rolebinding
+       patch: |-
+         - op: replace
+           path: /metadata/name
+           value: awx-operator-proxy-rolebinding-<namespace>
+   EOF
+
+   $ oc apply -k .
+
+   $ oc -n <namespace> wait --for=condition=Available deployment \
+       -l control-plane=controller-manager --timeout=300s
+   ```
+
+   The installer stops if no operator replica is available, so wait for the operator before the
+   user runs it. Keep `name` as shown: it is the image that the operator manifests reference, so a different
+   `name` matches nothing and the operator is deployed as `ghcr.io/ctrliq/ascender-operator:latest`.
+   If the image comes from your own registry, add a `newName` line under `name`, for example
+   `newName: registry.example.com/mirror/ascender-operator`.
+
+   The `patches` entry gives the operator's proxy `ClusterRoleBinding` a name that includes the
+   namespace. Without it, every namespace gets the same cluster-wide binding, and applying this
+   step for a second namespace replaces the first namespace's service account in it, so the
+   first operator loses the `tokenreviews` and `subjectaccessreviews` rights. The four
+   `CustomResourceDefinition`s and the two proxy `ClusterRole`s are still shared by every
+   install on the cluster, and they are identical for one operator version, so use the same
+   `<operator-version>` for every namespace on a cluster.
+
+   The overlay fetches the operator from `github.com`, so the machine that runs `oc apply -k .`
+   needs access to it. A disconnected install (`k8s_offline: true`) is not covered in this mode
+   and has not been tested. The offline bundle keeps the operator configuration at
+   `offline/ascender-operator-<operator-version>/config`, which is where the installer copies it
+   from in the default mode (`playbooks/roles/ascender_install/tasks/ascender_install_ocp.yml`),
+   so an administrator would point `resources` at a local copy of that directory and mirror the
+   image with `newName`.
+
+2. Bind the `anyuid` SCC to the Ascender service account. The binding is cluster-wide, so its name
+   includes the namespace: a fixed name would collide with the binding of another Ascender install
+   on the same cluster.
+
+   ```text
+   $ oc create clusterrolebinding anyuid-scc-<namespace>-ascender-app-binding \
+       --clusterrole=system:openshift:scc:anyuid --serviceaccount=<namespace>:ascender-app
+   ```
+
+3. Let the user manage the Ascender custom resources in the namespace. The resource names below
+   are those of the `awx.ansible.com` group, which operator 25.6.2 serves; if your operator serves
+   a different group, use its matching resources:
+
+   ```text
+   $ oc -n <namespace> create role ascender-cr-editor --verb=get,list,watch,create,update,patch,delete \
+       --resource=awxs.awx.ansible.com,awxbackups.awx.ansible.com,awxrestores.awx.ansible.com
+
+   $ oc -n <namespace> create rolebinding ascender-cr-editor --role=ascender-cr-editor --user=<user>
+   ```
+
+Before the instance step the installer checks that the Ascender custom resources can be listed and
+that the operator is running in the namespace, and stops with the missing step if not. It cannot
+check step 2, because only an administrator can see SCC bindings. If step 2 is missing, Ascender
+installs and its web interface and API work, but jobs fail with `Failed to extract private data
+directory on worker`, because the job pods run without `anyuid` (see the SCC notes above).
+
+Upgrading the operator (changing `ASCENDER_OPERATOR_VERSION`) and changing the CRDs stay
+administrator steps: repeat step 1. The CRDs are shared by every namespace on the cluster, so
+repeat step 1, at the same version, in every namespace that runs an Ascender operator. The
+namespace user can still change and re-apply the Ascender instance.
+
+Ledger, Proxy, Registry and Reaqt are not covered by this mode, because their OCP installs create
+the namespace, which needs cluster scope (Ledger also creates other cluster-scoped objects), and
+they are not tested in this mode. The installer refuses to run with `ocp_namespace_only` and any of `LEDGER_INSTALL`, `PROXY_INSTALL`,
+`REGISTRY_INSTALL` or `REAQT_INSTALL` set.
+
+In this mode `tmp_dir` has no `kustomization.yml`, so to uninstall run only the
+`kubectl delete -f ascender-deployment-ocp.yml` step from the Uninstall section above. An
+administrator removes the operator by deleting the namespace and that namespace's two
+cluster-wide bindings:
+
+```text
+$ oc delete namespace <namespace>
+$ oc delete clusterrolebinding awx-operator-proxy-rolebinding-<namespace> \
+    anyuid-scc-<namespace>-ascender-app-binding
+```
+
+Do not run `oc delete -k .` on the step 1 overlay while another namespace on the cluster still
+runs Ascender: it also deletes the shared CRDs, and deleting a CRD deletes every custom resource
+of that kind in the cluster.
 
 
