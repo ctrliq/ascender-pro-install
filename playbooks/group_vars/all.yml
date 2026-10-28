@@ -406,7 +406,7 @@ required_collections:
     version_type: semver
     platform: ["azure", "dkp", "eks", "gcp", "k3s", "rke2"]
   - name: ctrliq.ascender
-    version: "25.5.1"
+    version: "25.6.3"
     compare: ">="
     version_type: semver
     platform: ["azure", "dkp", "eks", "gcp", "k3s", "rke2"]
