@@ -20,4 +20,4 @@ collections:
   - name: community.aws
     version: ">=11.0.0"
   - name: ctrliq.ascender
-    version: "25.5.1"
+    version: "25.6.3"
