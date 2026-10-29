@@ -15,7 +15,7 @@
 - name: Scale up operator
   kubernetes.core.k8s_scale:
     kind: Deployment
-    name: awx-operator-controller-manager
+    name: "{{ ascender_operator_deployment }}"
     namespace: "{{ ascender.namespace }}"
     replicas: 1
     wait: true
@@ -25,7 +25,7 @@
     kind: Job
     namespace: "{{ ascender.namespace }}"
     label_selectors:
-      - "app.kubernetes.io/managed-by=awx-operator"
+      - "app.kubernetes.io/managed-by={{ ascender_managed_by }}"
       - "app.kubernetes.io/part-of={{ ascender.instance }}"
   register: migration_job
   until:

@@ -8,7 +8,7 @@
     kind: Route
     namespace: "{{ ascender.namespace }}"
     label_selectors:
-      - "app.kubernetes.io/managed-by=awx-operator"
+      - "app.kubernetes.io/managed-by={{ ascender_managed_by }}"
       - "app.kubernetes.io/part-of={{ ascender.instance }}"
   register: ascender_route
 
