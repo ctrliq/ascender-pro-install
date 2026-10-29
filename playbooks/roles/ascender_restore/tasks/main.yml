@@ -1,3 +1,8 @@
+- name: Resolve which API kind this deployment is managed through
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: resolve_cr_kind
+
 - include_tasks: container.yml
   when: ASCENDER_PGSQL_HOST is not defined
 

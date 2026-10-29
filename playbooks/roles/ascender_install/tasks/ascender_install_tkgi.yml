@@ -1,3 +1,8 @@
+- name: Resolve which API kind this deployment is managed through
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: resolve_cr_kind
+
 - name: Set kubeconfig path for tkgi platform
   ansible.builtin.set_fact:
     kubeconfig_path: "{{ TKGI_KUBECONFIG_PATH | default(lookup('env', 'KUBECONFIG'), true) | default(lookup('env', 'HOME') + '/.kube/config', true) }}"

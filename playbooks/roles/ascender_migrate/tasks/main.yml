@@ -1,10 +1,15 @@
+- name: Resolve which API kind this deployment is managed through
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: resolve_cr_kind
+
 
 - name: Remove restore if exists
   kubernetes.core.k8s:
     state: absent
     definition:
-      apiVersion: awx.ansible.com/v1beta1
-      kind: AWXRestore
+      apiVersion: "{{ ascender_cr_api_version }}"
+      kind: "{{ ascender_restore_kind }}"
       metadata:
         name: ascender-app-restore
         namespace: "{{ ASCENDER_NAMESPACE }}"
@@ -14,8 +19,8 @@
   kubernetes.core.k8s:
     state: present
     definition:
-      apiVersion: awx.ansible.com/v1beta1
-      kind: AWXBackup
+      apiVersion: "{{ ascender_cr_api_version }}"
+      kind: "{{ ascender_backup_kind }}"
       metadata:
         name: ascender-app-backup
         namespace: "{{ ASCENDER_NAMESPACE }}"
@@ -26,8 +31,8 @@
 
 - name: Get backup information
   kubernetes.core.k8s_info:
-    api_version: awx.ansible.com/v1beta1
-    kind: AWXBackup
+    api_version: "{{ ascender_cr_api_version }}"
+    kind: "{{ ascender_backup_kind }}"
     name: ascender-app-backup
     namespace: "{{ ASCENDER_NAMESPACE }}"
     verify_ssl: false
@@ -252,8 +257,8 @@
   kubernetes.core.k8s:
     state: present
     definition:
-      apiVersion: awx.ansible.com/v1beta1
-      kind: AWXRestore
+      apiVersion: "{{ ascender_cr_api_version }}"
+      kind: "{{ ascender_restore_kind }}"
       metadata:
         name: ascender-app-restore
         namespace: "{{ ASCENDER_NAMESPACE }}"
@@ -342,8 +347,8 @@
   kubernetes.core.k8s:
     state: absent
     definition:
-      apiVersion: awx.ansible.com/v1beta1
-      kind: AWXRestore
+      apiVersion: "{{ ascender_cr_api_version }}"
+      kind: "{{ ascender_restore_kind }}"
       metadata:
         name: ascender-app-restore
         namespace: "{{ ASCENDER_NAMESPACE }}"

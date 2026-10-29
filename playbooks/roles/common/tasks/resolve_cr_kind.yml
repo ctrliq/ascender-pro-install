@@ -1,0 +1,76 @@
+---
+# Which API kind this deployment is managed through.
+#
+# The operator serves the same four resources under two groups: awx.ansible.com
+# with AWX, and ascender.ansible.com with Ascender. They are separate objects
+# rather than aliases, and both name every object they manage from the same
+# deployment_type, so one deployment is managed through one of them, never both.
+#
+# A new install gets the Ascender kind. An install that predates the group keeps
+# the AWX kind, because changing the kind of a running deployment is an
+# ownership swap, which is what the operator's hack/migrate-awx-to-ascender.sh
+# is for rather than a side effect of a playbook run. An operator too old to
+# serve the group gets AWX as well, since the kind would otherwise not exist.
+#
+# Both questions are asked of the CustomResourceDefinition API. That kind always
+# resolves, so an absent CRD comes back as an empty list rather than an error,
+# and the task is left to fail normally on a real one: guessing the kind from a
+# question the cluster never answered is not something to do quietly.
+
+- name: Look up which deployment CRDs the operator serves
+  kubernetes.core.k8s_info:
+    api_version: apiextensions.k8s.io/v1
+    kind: CustomResourceDefinition
+    name: "{{ item }}"
+    verify_ssl: false
+  register: _deployment_crds
+  loop:
+    - awxs.awx.ansible.com
+    - ascenders.ascender.ansible.com
+
+- name: Note which groups are served
+  ansible.builtin.set_fact:
+    _awx_crd_present: "{{ (_deployment_crds.results[0].resources | length) > 0 }}"
+    _ascender_crd_present: "{{ (_deployment_crds.results[1].resources | length) > 0 }}"
+
+- name: Look for a deployment already managed through the AWX kind
+  kubernetes.core.k8s_info:
+    api_version: awx.ansible.com/v1beta1
+    kind: AWX
+    name: "{{ ascender_instance_name }}"
+    namespace: "{{ ASCENDER_NAMESPACE }}"
+    verify_ssl: false
+  register: _existing_awx_cr
+  when: _awx_crd_present | bool
+
+- name: Decide which kind to use
+  ansible.builtin.set_fact:
+    _existing_awx: "{{ (_existing_awx_cr.resources | default([]) | length) > 0 }}"
+    _use_awx_kind: >-
+      {{ ((_existing_awx_cr.resources | default([]) | length) > 0)
+         or (not _ascender_crd_present | bool) }}
+
+- name: Set the kinds for this run
+  ansible.builtin.set_fact:
+    ascender_cr_api_version: "{{ 'awx.ansible.com/v1beta1' if _use_awx_kind | bool else 'ascender.ansible.com/v1beta1' }}"
+    ascender_cr_kind: "{{ 'AWX' if _use_awx_kind | bool else 'Ascender' }}"
+    ascender_backup_kind: "{{ 'AWXBackup' if _use_awx_kind | bool else 'AscenderBackup' }}"
+    ascender_restore_kind: "{{ 'AWXRestore' if _use_awx_kind | bool else 'AscenderRestore' }}"
+    ascender_mesh_ingress_kind: "{{ 'AWXMeshIngress' if _use_awx_kind | bool else 'AscenderMeshIngress' }}"
+    ascender_mesh_ingress_api_version: "{{ 'awx.ansible.com/v1alpha1' if _use_awx_kind | bool else 'ascender.ansible.com/v1alpha1' }}"
+    ascender_deployment_type: "{{ 'awx' if _use_awx_kind | bool else 'ascender' }}"
+    ascender_managed_by: "{{ 'awx-operator' if _use_awx_kind | bool else 'ascender-operator' }}"
+
+- name: Report which kind this run will use
+  ansible.builtin.debug:
+    msg: >-
+      Managing {{ ascender_instance_name }} through {{ ascender_cr_kind }}
+      ({{ ascender_cr_api_version }}), {{
+        'which is the kind it already exists under'
+        if _existing_awx | bool
+        else (
+          'because this operator does not serve ascender.ansible.com yet'
+          if not _ascender_crd_present | bool
+          else 'the kind new installs use'
+        )
+      }}
