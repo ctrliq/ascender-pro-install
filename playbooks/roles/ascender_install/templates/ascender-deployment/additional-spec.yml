@@ -36,10 +36,16 @@
 {% if k8s_ee_pull_credentials_secret is defined and k8s_ee_pull_credentials_secret != 'None'%}
   ee_pull_credentials_secret: {{ k8s_ee_pull_credentials_secret }}
 {% endif %}
+{# On OCP these capabilities are rejected by restricted-v2 and anyuid, which forces the privileged SCC.
+   The explicit empty list also clears them from a CR applied by an earlier installer. #}
+{% if k8s_platform != 'ocp' %}
   redis_capabilities:
    - CHOWN
    - SETUID
    - SETGID
+{% else %}
+  redis_capabilities: []
+{% endif %}
 {% if ee_images is defined %}
   ee_images:
 {% for ee in ee_images %}

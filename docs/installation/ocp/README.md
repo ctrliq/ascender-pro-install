@@ -41,6 +41,27 @@ If you have not done so already, be sure to follow the general prerequisites fou
     installing server, and specify their locations in the config file with the variables
     `tls_crt_path` and `tls_key_path`, respectively. The installer will parse these files for their
     content, and use the content to create a Kubernetes TLS Secret for HTTPS enablement.
+- Security Context Constraints (SCC)
+  - The installer binds the `anyuid` SCC to the `ascender-app` service account with a
+    cluster-scoped `ClusterRoleBinding`. The `privileged` SCC is not requested for Ascender.
+    Ledger's install still binds both `privileged` and `anyuid` to its own service account.
+  - `anyuid` is needed for jobs, not for the Ascender pods: the job pods that the task pod creates
+    take their SCC from that service account, and without `anyuid` they get a random UID that
+    cannot write to `/runner` in the execution environment image, so jobs fail with `Failed to
+    extract private data directory on worker`.
+  - Installs made with an earlier version of the installer also have a
+    `privileged-scc-ascender-app-binding` binding, and `redis_capabilities` set in their Ascender
+    custom resource. Re-running this installer sets `redis_capabilities: []`, which makes the
+    operator restart the web and task pods once. The operator does this after the installer
+    returns, so it can take a minute or more: watch `oc -n <namespace> get pods` until the new
+    pods are Ready. Then delete the binding to drop `privileged`:
+
+    ```text
+    $ oc delete clusterrolebinding privileged-scc-ascender-app-binding
+    ```
+
+    Delete the binding only after that restart: while the old `redis_capabilities` is still in the
+    custom resource, new pods are rejected without `privileged`.
 
 ## Install and Upgrade Instructions
 
