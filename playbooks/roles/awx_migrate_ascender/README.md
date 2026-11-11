@@ -682,7 +682,7 @@ Uses the existing `awx_templates_with_enabled_notifications` lookup plugin (in `
 
 | Step | What |
 |---|---|
-| 1 | Get Ascender Route/Ingress | Label selectors: `app.kubernetes.io/managed-by=awx-operator`, `app.kubernetes.io/part-of=<instance>` |
+| 1 | Get Ascender Route/Ingress | Label selectors: `app.kubernetes.io/managed-by=<awx|ascender>-operator`, following the kind the deployment uses,, `app.kubernetes.io/part-of=<instance>` |
 | 2 | HTTP GET `/api/v2/` | Retries 5x at 5s, expects 200 |
 
 ## Restore performance tuning
@@ -884,7 +884,7 @@ If `ascender-manage migrate` fails with `InconsistentMigrationHistory`, the migr
 
 If the operator's migration job fails after startup, it means the migrate phase didn't fully complete. Rerun with `--tags migrate,patch_cr,startup,verify`.
 
-Check migration logs: `oc logs -n <namespace> -l app.kubernetes.io/managed-by=awx-operator,app.kubernetes.io/part-of=<instance> -c <instance>-migration`.
+Check migration logs: `oc logs -n <namespace> -l app.kubernetes.io/managed-by=ascender-operator,app.kubernetes.io/part-of=<instance> -c <instance>-migration`.
 
 ### Credentials don't decrypt after restore
 The secret_key patch may have failed. Check the K8s secret: `oc get secret <instance>-secret-key -n <namespace> -o yaml`. The `data.secret_key` should match AWX's value. The secrets are read from the worker pod in the secrets phase and applied via K8s API.

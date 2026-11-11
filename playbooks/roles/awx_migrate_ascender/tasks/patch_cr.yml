@@ -29,10 +29,18 @@
   ansible.builtin.debug:
     var: _cr_patch
 
-- name: Patch Ascender AWX CR
+- name: Resolve which API kind this deployment is managed through
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: resolve_cr_kind
+  vars:
+    ascender_instance_name: "{{ ascender.instance }}"
+    ASCENDER_NAMESPACE: "{{ ascender.namespace }}"
+
+- name: Patch the Ascender deployment CR
   kubernetes.core.k8s:
-    api_version: awx.ansible.com/v1beta1
-    kind: AWX
+    api_version: "{{ ascender_cr_api_version }}"
+    kind: "{{ ascender_cr_kind }}"
     name: "{{ ascender.instance }}"
     namespace: "{{ ascender.namespace }}"
     state: patched

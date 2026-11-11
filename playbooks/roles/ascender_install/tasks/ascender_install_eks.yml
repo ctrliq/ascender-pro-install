@@ -1,3 +1,8 @@
+- name: Resolve which API kind this deployment is managed through
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: resolve_cr_kind
+
 - name: Get Certificates
   community.aws.acm_certificate_info:
     domain_name: "{{ ASCENDER_HOSTNAME }}"

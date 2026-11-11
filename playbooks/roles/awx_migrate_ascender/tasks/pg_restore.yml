@@ -9,7 +9,7 @@
     namespace: "{{ ascender.namespace }}"
     label_selectors:
       - "app.kubernetes.io/component=database"
-      - "app.kubernetes.io/managed-by=awx-operator"
+      - "app.kubernetes.io/managed-by={{ ascender_managed_by }}"
   register: pg_statefulset
 
 - name: Patch PostgreSQL StatefulSet with restore PVC

@@ -1,3 +1,8 @@
+- name: Resolve which API kind this deployment is managed through
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: resolve_cr_kind
+
 - name: Retrieve the current time in order to timestamp files
   ansible.builtin.setup:
     gather_subset:
