@@ -6,6 +6,11 @@
     - ["../custom.config.yml", "../default.config.yml"]
   tasks:
 
+    - name: Resolve which API kind this deployment is managed through
+      ansible.builtin.include_role:
+        name: common
+        tasks_from: resolve_cr_kind
+
     - name: Check for Postgres Pod
       kubernetes.core.k8s_info:
         kind: StatefulSet
@@ -39,7 +44,7 @@
         wait: true
         wait_timeout: 180
       loop:
-        - awx-operator-controller-manager
+        - "{{ ascender_operator_deployment }}"
         - ascender-app-task
         - ascender-app-web
 

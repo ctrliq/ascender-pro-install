@@ -1,3 +1,8 @@
+- name: Resolve which API kind this deployment is managed through
+  ansible.builtin.include_role:
+    name: common
+    tasks_from: resolve_cr_kind
+
 - name: Set kubeconfig path for tkgi platform
   ansible.builtin.set_fact:
     kubeconfig_path: "{{ TKGI_KUBECONFIG_PATH | default(lookup('env', 'KUBECONFIG'), true) | default(lookup('env', 'HOME') + '/.kube/config', true) }}"
@@ -133,7 +138,7 @@
       - wait
       - --for=condition=available
       - --timeout=360s
-      - deployment/awx-operator-controller-manager
+      - "deployment/{{ ascender_operator_deployment }}"
       - -n
       - "{{ ASCENDER_NAMESPACE }}"
   changed_when: false
