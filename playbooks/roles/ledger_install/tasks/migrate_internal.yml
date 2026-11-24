@@ -1,0 +1,233 @@
+# Copies the internal MariaDB database of a Ledger 1.x install into the new internal
+# PostgreSQL database. Runs before the new Ledger manifest is applied, so until the copy has
+# succeeded db-settings still points at MariaDB and nothing writes to PostgreSQL.
+#
+#   1. read the credentials the running install uses (Secret db-settings)
+#   2. stop web and parser (and scheduler/MCP left by an earlier attempt)
+#   3. mysqldump MariaDB to {{ tmp_dir }} on the control node, as the rollback copy
+#   4. deploy PostgreSQL and wait for it
+#   5. run `ledger-web migrate-from-mariadb` as a Job (tasks/migration_job.yml)
+# main.yml then applies the full manifest (db-settings -> postgres:5432), waits for Ledger to
+# answer and removes the MariaDB Deployment and Service (tasks/mariadb_cleanup.yml).
+
+- name: Read the database settings of the running install
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: db-settings
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  register: ledger_old_db_settings_secret
+  no_log: true
+
+- name: Work out the MariaDB credentials
+  vars:
+    ledger_old_config: >-
+      {{ (ledger_old_db_settings_secret.resources[0].data['config.json'] | b64decode | from_json)
+         if (ledger_old_db_settings_secret.resources | length > 0
+             and 'config.json' in (ledger_old_db_settings_secret.resources[0].data | default({})))
+         else {} }}
+  ansible.builtin.set_fact:
+    ledger_migration_source:
+      host: db
+      port: "3306"
+      name: "{{ ledger_old_config.db_name | default(LEDGER_DB_NAME, true) }}"
+      username: "{{ ledger_old_config.db_username | default(LEDGER_DB_USERNAME, true) }}"
+      # The old database image strips non-ASCII characters from the password it sets.
+      password: "{{ ledger_old_config.db_password | default(LEDGER_DB_PASSWORD, true) | regex_replace('[^\\x00-\\x7F]', '') }}"
+    ledger_old_db_password: "{{ ledger_old_config.db_password | default(LEDGER_DB_PASSWORD, true) }}"
+  no_log: true
+
+# Ledger derives the keys that encrypt stored secrets (SMTP, LDAP, SSO, ... passwords) from the
+# database password unless dedicated keys are configured. Changing the password together with
+# the migration would leave those settings unreadable.
+- name: Stop if LEDGER_DB_PASSWORD differs from the password the install uses
+  ansible.builtin.fail:
+    msg: >-
+      LEDGER_DB_PASSWORD in your configuration is not the database password the running Ledger
+      uses (Secret db-settings in namespace {{ LEDGER_NAMESPACE }}). Ledger derives the keys that
+      encrypt stored settings from that password, so the migration must keep it. Set
+      LEDGER_DB_PASSWORD to the current value, which you can read with:
+      kubectl -n {{ LEDGER_NAMESPACE }} get secret db-settings -o jsonpath='{.data.config\.json}' | base64 -d
+  when: ledger_old_db_password != LEDGER_DB_PASSWORD
+
+- name: Record that the migration has started
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: ledger-postgres-migration
+        namespace: "{{ LEDGER_NAMESPACE }}"
+      data:
+        phase: started
+        started_at: "{{ ansible_date_time.iso8601 }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+
+- name: Look for Ledger Deployments to stop
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ item }}"
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  loop: [web, parser, scheduler, mcp]
+  register: ledger_app_deployments
+
+- name: Stop Ledger so nothing writes to MariaDB during the copy
+  kubernetes.core.k8s_scale:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ item.item }}"
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    replicas: 0
+    wait: true
+    wait_timeout: 300
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  loop: "{{ ledger_app_deployments.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.resources | length > 0
+
+- name: Make sure MariaDB is running
+  kubernetes.core.k8s_scale:
+    api_version: apps/v1
+    kind: Deployment
+    name: db
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    replicas: 1
+    wait: true
+    wait_timeout: 600
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+
+- name: Find the MariaDB pod
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    label_selectors:
+      - io.kompose.service=db
+    field_selectors:
+      - status.phase=Running
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  register: ledger_old_db_pods
+  until: ledger_old_db_pods.resources | length > 0
+  retries: 30
+  delay: 10
+
+- name: Set the backup file names
+  ansible.builtin.set_fact:
+    ledger_old_db_pod: "{{ ledger_old_db_pods.resources[0].metadata.name }}"
+    ledger_mariadb_backup_remote: /tmp/ledger-mariadb-backup.sql
+    ledger_mariadb_backup_local: "{{ tmp_dir }}/ledger-mariadb-backup.{{ ansible_date_time.iso8601_basic_short }}.sql"
+
+# The old database image starts MariaDB as root with socket authentication, so root needs no
+# password inside the pod. --single-transaction gives a consistent snapshot of the InnoDB tables.
+- name: Dump the MariaDB database (mysqldump)
+  kubernetes.core.k8s_exec:
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    pod: "{{ ledger_old_db_pod }}"
+    command: >-
+      bash -c 'set -o pipefail;
+      DUMP=$(command -v mariadb-dump || command -v mysqldump) || exit 127;
+      for i in $(seq 1 30); do mysqladmin ping >/dev/null 2>&1 && break; sleep 2; done;
+      "$DUMP" --single-transaction --routines --triggers --events --hex-blob
+      --databases {{ ledger_migration_source.name }} > {{ ledger_mariadb_backup_remote }}
+      && stat -c %s {{ ledger_mariadb_backup_remote }}'
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  register: ledger_mariadb_dump
+  failed_when: ledger_mariadb_dump.rc | default(1) != 0
+
+- name: Copy the MariaDB dump to the control node
+  kubernetes.core.k8s_cp:
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    pod: "{{ ledger_old_db_pod }}"
+    remote_path: "{{ ledger_mariadb_backup_remote }}"
+    local_path: "{{ ledger_mariadb_backup_local }}"
+    state: from_pod
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+
+- name: Check the local copy of the dump
+  ansible.builtin.stat:
+    path: "{{ ledger_mariadb_backup_local }}"
+  register: ledger_mariadb_backup_stat
+
+- name: Read the end of the dump
+  ansible.builtin.command:
+    argv: [tail, -n, 1, "{{ ledger_mariadb_backup_local }}"]
+  register: ledger_mariadb_backup_tail
+  changed_when: false
+
+- name: Stop unless the backup is complete
+  ansible.builtin.assert:
+    that:
+      - ledger_mariadb_backup_stat.stat.exists
+      - ledger_mariadb_backup_stat.stat.size == (ledger_mariadb_dump.stdout_lines | last | int)
+      - "'Dump completed' in ledger_mariadb_backup_tail.stdout"
+    fail_msg: >-
+      The MariaDB backup {{ ledger_mariadb_backup_local }} is incomplete (size
+      {{ ledger_mariadb_backup_stat.stat.size | default('missing') }}, expected
+      {{ ledger_mariadb_dump.stdout_lines | last }}). Nothing has been changed
+      except that web and parser are scaled to 0; re-run the installer to try again.
+
+- name: Remove the dump from the MariaDB pod
+  kubernetes.core.k8s_exec:
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    pod: "{{ ledger_old_db_pod }}"
+    command: rm -f {{ ledger_mariadb_backup_remote }}
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+
+- name: Record the backup location
+  kubernetes.core.k8s:
+    state: patched
+    api_version: v1
+    kind: ConfigMap
+    name: ledger-postgres-migration
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    definition:
+      data:
+        mariadb_backup: "{{ ledger_mariadb_backup_local }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+
+- ansible.builtin.debug:
+    msg: "MariaDB backup saved to {{ ledger_mariadb_backup_local }} ({{ ledger_mariadb_backup_stat.stat.size }} bytes). Keep it until you have checked the migrated Ledger."
+
+- name: Deploy PostgreSQL
+  ansible.builtin.include_tasks: postgres_deploy.yml
+
+- name: Check what PostgreSQL holds before the copy
+  ansible.builtin.include_tasks: postgres_populated.yml
+
+- name: Stop instead of overwriting data in PostgreSQL
+  ansible.builtin.fail:
+    msg: >-
+      The PostgreSQL database already holds tables, and there is no record of an unfinished
+      migration that put them there. To overwrite them with the MariaDB data, set
+      LEDGER_MIGRATION_FORCE: true and run the installer again.
+  when:
+    - ledger_postgres_populated | bool
+    - not (ledger_migration_force | bool)
+
+- name: Copy MariaDB into PostgreSQL
+  ansible.builtin.include_tasks: migration_job.yml

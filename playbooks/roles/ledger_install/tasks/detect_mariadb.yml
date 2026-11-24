@@ -1,0 +1,143 @@
+# Looks for a Ledger 1.x MariaDB database (Deployment "db", PVC "mysql-data") in
+# LEDGER_NAMESPACE and decides what the install does with it. Sets:
+#   ledger_migration_needed   copy MariaDB into PostgreSQL in this run
+#   ledger_migration_force    run the copy with --force
+#   ledger_migration_done     a copy has completed (now or before): the old db objects can go
+#
+# Progress is recorded in the ConfigMap ledger-postgres-migration (data.phase: started,
+# failed or completed), so a re-run picks up where the last one stopped.
+
+- name: Look for the MariaDB Deployment of an earlier Ledger install
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: db
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  register: ledger_old_db_deployment
+
+- name: Look for the MariaDB volume of an earlier Ledger install
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: mysql-data
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  register: ledger_old_db_pvc
+
+- name: Look for the migration progress record
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: ConfigMap
+    name: ledger-postgres-migration
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  register: ledger_migration_record
+
+- name: Look for the PostgreSQL StatefulSet
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: StatefulSet
+    name: postgres
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  register: ledger_postgres_statefulset
+
+- name: Summarise what was found
+  vars:
+    ledger_old_db_images: "{{ ledger_old_db_deployment.resources | map(attribute='spec.template.spec.containers') | flatten | map(attribute='image') | list }}"
+  ansible.builtin.set_fact:
+    # Any Deployment named "db" in the Ledger namespace was made by an earlier installer; the
+    # image check only guards against something unrelated that happens to share the name.
+    ledger_old_db_present: >-
+      {{ ledger_old_db_deployment.resources | length > 0
+         and (ledger_old_db_images | select('search', '(ledger-db|mariadb|mysql)') | list | length > 0
+              or ledger_old_db_pvc.resources | length > 0) }}
+    ledger_old_db_pvc_present: "{{ ledger_old_db_pvc.resources | length > 0 }}"
+    ledger_migration_phase: "{{ (ledger_migration_record.resources | first | default({})).data.phase | default('') }}"
+    ledger_postgres_populated: false
+
+- name: Check whether PostgreSQL already holds Ledger data
+  ansible.builtin.include_tasks: postgres_populated.yml
+  when:
+    - ledger_old_db_present | bool or ledger_old_db_pvc_present | bool
+    - ledger_migration_phase != 'completed'
+    - ledger_postgres_statefulset.resources | length > 0
+
+- name: Decide whether to migrate
+  ansible.builtin.set_fact:
+    ledger_mariadb_found: "{{ ledger_old_db_present | bool or ledger_old_db_pvc_present | bool }}"
+    # PostgreSQL has data but no record of a migration: it was filled some other way (by hand,
+    # or the record was deleted). Treat that as done rather than overwrite it.
+    ledger_migration_assumed_done: >-
+      {{ (ledger_old_db_present | bool or ledger_old_db_pvc_present | bool)
+         and ledger_migration_phase == ''
+         and ledger_postgres_populated | bool
+         and not (LEDGER_MIGRATION_FORCE | bool) }}
+
+- name: Decide whether to migrate (continued)
+  ansible.builtin.set_fact:
+    ledger_migration_needed: >-
+      {{ ledger_mariadb_found | bool
+         and ledger_migration_phase != 'completed'
+         and not (ledger_migration_assumed_done | bool)
+         and not (LEDGER_SKIP_MARIADB_MIGRATION | bool) }}
+    # An earlier attempt that did not finish leaves its partial copy behind: overwrite it.
+    ledger_migration_force: >-
+      {{ LEDGER_MIGRATION_FORCE | bool
+         or (ledger_migration_phase in ['started', 'failed'] and ledger_postgres_populated | bool) }}
+    ledger_migration_done: "{{ ledger_migration_phase == 'completed' or ledger_migration_assumed_done | bool }}"
+
+- name: Report the migration decision
+  ansible.builtin.debug:
+    msg: >-
+      MariaDB Deployment: {{ 'found' if ledger_old_db_present | bool else 'not found' }};
+      mysql-data volume: {{ 'found' if ledger_old_db_pvc_present | bool else 'not found' }};
+      migration record: {{ ledger_migration_phase or 'none' }};
+      PostgreSQL holds data: {{ (ledger_postgres_populated | bool) if ledger_postgres_tables is defined else 'not checked' }}.
+      {{ 'Ledger will be migrated from MariaDB to PostgreSQL' ~ (' (with --force)' if ledger_migration_force | bool else '') ~ '.'
+         if ledger_migration_needed | bool
+         else ('PostgreSQL already holds data but there is no migration record: treating the migration as done (set LEDGER_MIGRATION_FORCE: true to copy again).'
+               if ledger_migration_assumed_done | bool
+         else ('LEDGER_SKIP_MARIADB_MIGRATION is set: the MariaDB data is NOT migrated and is left in place.'
+               if (ledger_mariadb_found | bool and LEDGER_SKIP_MARIADB_MIGRATION | bool and not ledger_migration_done | bool)
+               else 'No migration needed.')) }}
+  when: ledger_mariadb_found | bool or ledger_migration_phase != ''
+
+- name: Stop when the MariaDB volume is there but its Deployment is gone
+  ansible.builtin.fail:
+    msg: >-
+      The namespace {{ LEDGER_NAMESPACE }} has the MariaDB volume (PVC mysql-data) of an earlier
+      Ledger install but no running MariaDB Deployment "db" to copy it from, and no completed
+      migration. Either re-run the installer version that deployed it so the "db" Deployment is
+      back, then run this installer again; or, to start Ledger with an empty PostgreSQL database
+      and leave the old volume alone, set LEDGER_SKIP_MARIADB_MIGRATION: true.
+  when:
+    - ledger_migration_needed | bool
+    - not (ledger_old_db_present | bool)
+
+- name: Record a migration that was found already done
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: ledger-postgres-migration
+        namespace: "{{ LEDGER_NAMESPACE }}"
+      data:
+        phase: completed
+        completed_at: "{{ ansible_date_time.iso8601 }}"
+        note: PostgreSQL already held data when the installer looked; no copy was made.
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  when: ledger_migration_assumed_done | bool

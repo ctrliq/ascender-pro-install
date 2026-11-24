@@ -1,0 +1,103 @@
+{#-
+  One-shot Job that copies a Ledger MariaDB database into PostgreSQL with
+  `ledger-web migrate-from-mariadb` (see docs/configuration/ledger.md).
+
+  Inputs (set by tasks/migration_job.yml):
+    ledger_migration_source: {host, port, name, username, password}  the MariaDB to read
+    ledger_migration_force:  pass --force (the target already holds data from an earlier attempt)
+  The target is LEDGER_DB_*, written to this Job's own Secret rather than db-settings, so
+  db-settings (and the running Ledger) keep pointing at MariaDB until the copy has succeeded.
+
+  Encryption keys: the copy re-encrypts stored credentials with the same keys the web pods
+  use. The installer mounts no firstkey/secondkey Secrets, so both fall back to keys derived
+  from db_password; if web ever gets firstkey/secondkey mounts, mount them here identically.
+-#}
+{% set ledger_ocp = (k8s_platform == 'ocp') %}
+apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    io.kompose.service: ledger-mariadb-migration
+  name: ledger-mariadb-migration
+  namespace: {{ LEDGER_NAMESPACE }}
+type: Opaque
+stringData:
+  config.json: |
+    {{ {
+      'db_host': LEDGER_DB_HOST,
+      'db_port': LEDGER_DB_PORT | string,
+      'db_name': LEDGER_DB_NAME,
+      'db_username': LEDGER_DB_USERNAME,
+      'db_password': LEDGER_DB_PASSWORD
+    } | combine({'db_sslmode': LEDGER_DB_SSLMODE} if LEDGER_DB_SSLMODE | default('', true) | length > 0 else {}) | to_json }}
+  SOURCE_DB_HOST: {{ ledger_migration_source.host | string | to_json }}
+  SOURCE_DB_PORT: {{ ledger_migration_source.port | string | to_json }}
+  SOURCE_DB_NAME: {{ ledger_migration_source.name | string | to_json }}
+  SOURCE_DB_USER: {{ ledger_migration_source.username | string | to_json }}
+  SOURCE_DB_PASSWORD: {{ ledger_migration_source.password | string | to_json }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    io.kompose.service: ledger-mariadb-migration
+  name: ledger-mariadb-migration
+  namespace: {{ LEDGER_NAMESPACE }}
+spec:
+  # Never retry on its own: a failed copy needs a person to look at the log.
+  backoffLimit: 0
+  activeDeadlineSeconds: {{ LEDGER_MIGRATION_TIMEOUT | default(7200) | int }}
+  template:
+    metadata:
+      labels:
+        io.kompose.network/ledger-default: "true"
+        io.kompose.service: ledger-mariadb-migration
+    spec:
+{% if ledger_ocp %}
+      serviceAccountName: {{ ledger_service_account_name }}
+{% endif %}
+      restartPolicy: Never
+      containers:
+      - name: migrate
+{% if k8s_container_registry %}
+        image: {{ k8s_container_registry ~ "/ledger-web" }}:{{ LEDGER_VERSION }}
+{% else %}
+        image: {{ LEDGER_WEB_IMAGE }}:{{ LEDGER_VERSION }}
+{% endif %}
+{% if k8s_platform == "k3s" and k8s_offline | default(false) | bool %}
+        imagePullPolicy: Never
+{% else %}
+        imagePullPolicy: {{ ascender_image_pull_policy | default("Always") }}
+{% endif %}
+        command:
+        - /app/ledger-web
+        - migrate-from-mariadb
+{% if ledger_migration_force | default(false) | bool %}
+        args:
+        - --force
+{% endif %}
+        env:
+{% for var in ['SOURCE_DB_HOST', 'SOURCE_DB_PORT', 'SOURCE_DB_NAME', 'SOURCE_DB_USER', 'SOURCE_DB_PASSWORD'] %}
+        - name: {{ var }}
+          valueFrom:
+            secretKeyRef:
+              name: ledger-mariadb-migration
+              key: {{ var }}
+{% endfor %}
+        resources: {}
+        volumeMounts:
+        - mountPath: /run/secrets/db-settings/config.json
+          name: target
+          subPath: config.json
+          readOnly: true
+{% if DEPOT_REGISTRY is defined %}
+      imagePullSecrets:
+      - name: ledger-registry-secret
+{% endif %}
+      volumes:
+      - name: target
+        secret:
+          secretName: ledger-mariadb-migration
+          items:
+          - key: config.json
+            path: config.json

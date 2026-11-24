@@ -47,6 +47,18 @@
     ledger_manifest: "{{ lookup('template', 'templates/ledger_deployment.yaml') | from_yaml_all | select | list }}"
   no_log: true
 
+# --- MariaDB (Ledger 1.x) -> PostgreSQL ----------------------------------------
+
+- name: Look for a MariaDB database to migrate
+  ansible.builtin.include_tasks: detect_mariadb.yml
+  when: ledger_db_internal | bool
+
+- name: Migrate the MariaDB database to PostgreSQL
+  ansible.builtin.include_tasks: migrate_internal.yml
+  when:
+    - ledger_db_internal | bool
+    - ledger_migration_needed | bool
+
 # --- Apply ---------------------------------------------------------------------
 
 - name: Remove the MCP server when LEDGER_MCP_INSTALL is false
@@ -205,6 +217,12 @@
 
 - ansible.builtin.debug:
     msg: "Ledger webpage is up"
+
+- name: Remove the MariaDB database of the earlier install
+  ansible.builtin.include_tasks: mariadb_cleanup.yml
+  when:
+    - ledger_db_internal | bool
+    - ledger_migration_done | default(false) | bool or ledger_migration_succeeded | default(false) | bool
 
 - name: Show how to reach the MCP server
   ansible.builtin.debug:
