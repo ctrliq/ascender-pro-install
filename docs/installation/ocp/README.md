@@ -45,7 +45,9 @@ If you have not done so already, be sure to follow the general prerequisites fou
 - Security Context Constraints (SCC)
   - The installer binds the `anyuid` SCC to the `ascender-app` service account with a
     cluster-scoped `ClusterRoleBinding`. The `privileged` SCC is not requested for Ascender.
-    Ledger's install still binds both `privileged` and `anyuid` to its own service account.
+    Ledger's install still binds both `privileged` and `anyuid` to its own service account
+    (used by its web, parser, scheduler and MCP pods). Ledger's PostgreSQL pod does not use that
+    account and runs under `restricted-v2`.
   - `anyuid` is needed for jobs, not for the Ascender pods: the job pods that the task pod creates
     take their SCC from that service account, and without `anyuid` they get a random UID that
     cannot write to `/runner` in the execution environment image, so jobs fail with `Failed to
@@ -140,7 +142,7 @@ After running `setup.sh`, `tmp_dir` (by default `{{ playbook_dir}}/../ascender_i
 will contain timestamped kubernetes manifests for:
 
 - `ascender-deployment-{{ k8s_platform }}.yml`
-- `ledger-{{ k8s_platform }}.yml` (if you installed Ledger)
+- `ledger_deployment_{{ k8s_platform }}.yaml` (if you installed Ledger)
 - `kustomization.yml`
 
 Remove the timestamp from the filename and then run the following
@@ -149,7 +151,7 @@ commands from within `tmp_dir`:
 ```text
 $ kubectl delete -f ascender-deployment-{{ k8s_platform }}.yml
 
-$ kubectl delete -f ledger-{{ k8s_platform }}.yml # optional if you have installed ledger
+$ kubectl delete -f ledger_deployment_{{ k8s_platform }}.yaml # optional if you have installed ledger
 
 $ kubectl delete -k .
 ```

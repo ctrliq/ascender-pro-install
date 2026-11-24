@@ -183,7 +183,7 @@ After running `setup.sh`, `tmp_dir` (by default `{{ playbook_dir}}/../ascender_i
 will contain timestamped kubernetes manifests for:
 
 - `ascender-deployment-{{ k8s_platform }}.yml`
-- `ledger-{{ k8s_platform }}.yml` (if you installed Ledger)
+- `ledger_deployment_{{ k8s_platform }}.yaml` (if you installed Ledger)
 - `kustomization.yml`
 
 Remove the timestamp from the filename and then run the following
@@ -192,7 +192,7 @@ commands from within `tmp_dir`:
 ```text
 $ kubectl delete -f ascender-deployment-{{ k8s_platform }}.yml
 
-$ kubectl delete -f ledger-{{ k8s_platform }}.yml # optional if you have installed ledger
+$ kubectl delete -f ledger_deployment_{{ k8s_platform }}.yaml # optional if you have installed ledger
 
 $ kubectl delete -k .
 ```

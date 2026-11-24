@@ -14,6 +14,7 @@ These guides will walk you through the basics of setting up Ascender for the dif
 - [Setting up Automation Mesh](configuration/automation_mesh.md)
 - [Uninstalling Ascender or Ledger](configuration/uninstall.md)
 - [Upgrading Ascender or Ledger](configuration/upgrading.md)
+- [Ledger: PostgreSQL, shared storage, MCP and the MariaDB migration](configuration/ledger.md)
 
 # Troubleshooting Guides
 
