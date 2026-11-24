@@ -120,7 +120,8 @@ In order to perform an offline installation of Ascender on RKE2, you must comple
       - valkey (Found at [Dockerhub](https://ghcr.io/valkey-io/valkey))
     - Ledger
       - ledger-parser (Found at [Github Container Registry](https://github.com/ctrliq/ascender-ledger/pkgs/container/ascender-ledger%2Fledger-parser))
-      - ledger-db (Found at [Github Container Registry](https://github.com/ctrliq/ascender-ledger/pkgs/container/ascender-ledger%2Fledger-db))
+      - ledger-scheduler and ledger-mcp (from the same registry as ledger-web)
+      - postgresql-18-c9s (Found at [Quay](https://quay.io/repository/sclorg/postgresql-18-c9s)), Ledger's internal database
       - ledger-web (Found at [Github Container Registry](https://github.com/ctrliq/ascender-ledger/pkgs/container/ascender-ledger%2Fledger-web))
 
     
