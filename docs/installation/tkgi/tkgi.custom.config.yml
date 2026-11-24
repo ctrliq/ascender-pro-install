@@ -51,7 +51,8 @@ LEDGER_WEB_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-w
 ledger_web_replicas: 1
 LEDGER_PARSER_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-parser
 ledger_parser_replicas: 1
-LEDGER_DB_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-db
+LEDGER_SCHEDULER_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-scheduler
+LEDGER_MCP_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-mcp
 LEDGER_VERSION: latest
 LEDGER_NAMESPACE: ledger
 LEDGER_ADMIN_PASSWORD: "replace-me"

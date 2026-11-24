@@ -51,8 +51,9 @@ ledger_web_replicas: 1
 LEDGER_PARSER_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-parser
 # Number of replicas for the Ledger Parser container
 ledger_parser_replicas: 1
-# The OCI container image for Ledger DB
-LEDGER_DB_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-db
+# The OCI container images for the Ledger Scheduler and the optional MCP server
+LEDGER_SCHEDULER_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-scheduler
+LEDGER_MCP_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-mcp
 # The image tag indicating the version of Ledger you wish to install
 LEDGER_VERSION: latest
 # The Kubernetes namespace in which Ledger objects will live
