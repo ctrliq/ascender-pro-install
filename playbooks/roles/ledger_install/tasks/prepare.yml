@@ -1,0 +1,141 @@
+# Settles the Ledger variables every later step relies on. Used by the install
+# (main.yml) and by playbooks/migrate_ledger_external_db.yml.
+
+- name: Retrieve the current time in order to timestamp files
+  ansible.builtin.setup:
+    gather_subset:
+     - date_time
+
+- name: Make sure the directory for timestamped manifests and backups exists
+  ansible.builtin.file:
+    path: "{{ tmp_dir }}"
+    state: directory
+    mode: "0700"
+
+# --- Database location ------------------------------------------------------
+
+- name: Work out whether Ledger uses the internal PostgreSQL database
+  ansible.builtin.set_fact:
+    ledger_db_internal: "{{ (LEDGER_DB_HOST | default('', true) | string | trim) in ['', 'db', 'postgres'] }}"
+    ledger_db_port_configured: "{{ LEDGER_DB_PORT | default('', true) | string | trim }}"
+
+- name: Warn that the configured port is replaced for the internal database
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: LEDGER_DB_PORT is "{{ ledger_db_port_configured }}" in your configuration, but the
+      internal Ledger database is now PostgreSQL on port 5432. Using 5432; remove LEDGER_DB_PORT
+      (and LEDGER_DB_HOST) from custom.config.yml to silence this warning.
+  when:
+    - ledger_db_internal | bool
+    - ledger_db_port_configured not in ['', '5432']
+
+- name: Point Ledger at the internal PostgreSQL Service
+  ansible.builtin.set_fact:
+    LEDGER_DB_HOST: postgres
+    LEDGER_DB_PORT: "5432"
+  when: ledger_db_internal | bool
+
+- name: Refuse an external MariaDB/MySQL database
+  ansible.builtin.fail:
+    msg: >-
+      LEDGER_DB_HOST is the external server {{ LEDGER_DB_HOST }} on port 3306 (MariaDB/MySQL).
+      This version of Ledger runs on PostgreSQL only. Create a PostgreSQL 18 database and user
+      for Ledger, set LEDGER_DB_HOST/LEDGER_DB_PORT/LEDGER_DB_NAME/LEDGER_DB_USERNAME/LEDGER_DB_PASSWORD
+      to it, and copy the data with playbooks/migrate_ledger_external_db.yml (see
+      docs/configuration/ledger.md) before installing.
+  when:
+    - not (ledger_db_internal | bool)
+    - (LEDGER_DB_PORT | string | trim) == '3306'
+
+# --- Shared data volume -------------------------------------------------------
+
+- name: Work out the access mode of the shared ledger-data volume
+  ansible.builtin.set_fact:
+    ledger_data_access_mode: >-
+      {{ LEDGER_DATA_ACCESS_MODE if (LEDGER_DATA_ACCESS_MODE | default('', true) | length > 0)
+         else ('ReadWriteOnce' if (k8s_platform == 'k3s' and LEDGER_DATA_STORAGE_CLASS | default('', true) | length == 0)
+         else 'ReadWriteMany') }}
+
+- name: Check LEDGER_DATA_ACCESS_MODE
+  ansible.builtin.assert:
+    that:
+      - ledger_data_access_mode in ['ReadWriteMany', 'ReadWriteOnce']
+    fail_msg: "LEDGER_DATA_ACCESS_MODE must be ReadWriteMany or ReadWriteOnce, not {{ ledger_data_access_mode }}"
+    quiet: true
+
+- name: Require a ReadWriteMany storage class where the cluster default cannot provide one
+  vars:
+    ledger_rwx_hint:
+      aks: "the built-in azurefile-csi (or azurefile-csi-premium) storage class"
+      eks: "an Amazon EFS storage class (install the EFS CSI driver, e.g. a class named efs-sc)"
+      gke: "a Filestore storage class such as standard-rwx (enable the Filestore CSI driver)"
+  ansible.builtin.fail:
+    msg: >-
+      Ledger's web and scheduler pods share the ledger-data volume, which must be ReadWriteMany.
+      The default storage class on {{ k8s_platform | upper }} only provides ReadWriteOnce block
+      volumes, so set LEDGER_DATA_STORAGE_CLASS to {{ ledger_rwx_hint[k8s_platform] }}.
+      See docs/configuration/ledger.md.
+  when:
+    - ledger_data_access_mode == 'ReadWriteMany'
+    - LEDGER_DATA_STORAGE_CLASS | default('', true) | length == 0
+    - k8s_platform in ['aks', 'eks', 'gke']
+
+- name: Warn that the cluster default storage class must support ReadWriteMany
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: LEDGER_DATA_STORAGE_CLASS is not set, so the ledger-data volume (ReadWriteMany) uses
+      the cluster's default storage class. If that class cannot provide ReadWriteMany volumes
+      (most block storage cannot), the volume stays Pending and the web and scheduler pods never
+      start. Set LEDGER_DATA_STORAGE_CLASS to an RWX-capable class (NFS, CephFS, vSAN file
+      services, ...) to be sure.
+  when:
+    - ledger_data_access_mode == 'ReadWriteMany'
+    - LEDGER_DATA_STORAGE_CLASS | default('', true) | length == 0
+    - k8s_platform not in ['aks', 'eks', 'gke']
+
+- name: Warn about a ReadWriteOnce data volume on a multi-node platform
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: the ledger-data volume is ReadWriteOnce. That only works while every web pod and
+      the scheduler pod run on the same node.
+  when:
+    - ledger_data_access_mode == 'ReadWriteOnce'
+    - k8s_platform != 'k3s'
+
+- name: Look up the configured storage classes
+  kubernetes.core.k8s_info:
+    api_version: storage.k8s.io/v1
+    kind: StorageClass
+    name: "{{ item }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  register: ledger_storage_classes
+  loop: >-
+    {{ ([LEDGER_DATA_STORAGE_CLASS | default('', true)]
+        + ([LEDGER_PVC_STORAGE_CLASS | default('', true)] if ledger_db_internal | bool else []))
+       | select | unique | list }}
+
+- name: Fail on a storage class that does not exist
+  ansible.builtin.fail:
+    msg: "Storage class {{ item.item }} does not exist in the cluster (check LEDGER_DATA_STORAGE_CLASS / LEDGER_PVC_STORAGE_CLASS)."
+  loop: "{{ ledger_storage_classes.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item | default('') }}"
+  when:
+    - item.resources is defined
+    - item.resources | length == 0
+
+# --- Images -------------------------------------------------------------------
+
+- name: Work out the PostgreSQL image
+  vars:
+    ledger_postgres_image_repo: "{{ LEDGER_POSTGRES_IMAGE.split('@')[0] }}"
+  ansible.builtin.set_fact:
+    # An internal registry (k8s_container_registry) holds the image under its base name, as
+    # create_bundle.yml pushes it. Images imported offline into k3s have no registry digest.
+    ledger_postgres_image: >-
+      {{ (k8s_container_registry | regex_replace('/$', '') ~ '/' ~ (ledger_postgres_image_repo | basename))
+           if (k8s_container_registry and k8s_container_registry != 'depot.ciq.com/ascender-pro/ascender-ledger-pro-images')
+         else (ledger_postgres_image_repo if (k8s_platform == 'k3s' and k8s_offline | default(false) | bool)
+         else LEDGER_POSTGRES_IMAGE) }}

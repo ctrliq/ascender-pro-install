@@ -1,0 +1,754 @@
+{#-
+  Ledger manifest for every supported k8s_platform (aks, dkp, eks, gke, k3s, ocp, rke2, tkgi).
+
+  Platform differences are kept in the blocks marked "platform:" below; everything else is
+  shared. The variables it reads are documented in default.config.yml and
+  roles/ledger_install/defaults/main.yml. ledger_db_internal is normally set by
+  tasks/prepare.yml; the fallback below only matters when the template is rendered on its own.
+-#}
+{% set _db_internal = ledger_db_internal | default((LEDGER_DB_HOST | default('postgres', true)) in ['db', 'postgres']) | bool %}
+{% set ledger_ocp = (k8s_platform == 'ocp') %}
+{% set ledger_nodeport = (k8s_platform == 'k3s' and k3s_service_type | default('ClusterIP') == 'NodePort') %}
+{% set ledger_web_svc_port = 8090 if k8s_platform == 'eks' else 80 %}
+{% set ledger_mcp_enabled = LEDGER_MCP_INSTALL | default(true) | bool %}
+{% set ledger_mcp_port = LEDGER_MCP_PORT | default(8085) | int %}
+{% set _postgres_image = ledger_postgres_image | default(LEDGER_POSTGRES_IMAGE) %}
+{% macro ledger_image(name, fallback) -%}
+{% if k8s_container_registry %}{{ k8s_container_registry ~ "/" ~ name }}{% else %}{{ fallback }}{% endif %}:{{ LEDGER_VERSION }}
+{%- endmacro %}
+{% macro pull_policy() -%}
+{% if k8s_platform == "k3s" and k8s_offline | default(false) | bool %}Never{% else %}{{ ascender_image_pull_policy | default("Always") }}{% endif %}
+{%- endmacro %}
+{% macro pull_secrets() -%}
+{% if DEPOT_REGISTRY is defined %}
+      imagePullSecrets:
+      - name: ledger-registry-secret
+{% endif %}
+{%- endmacro %}
+{#- platform: how each platform exposes an HTTP Service on a hostname. Used for web and MCP.
+    For MCP on EKS the ALB health check accepts any HTTP answer (200-499): the MCP endpoint
+    answers a plain GET with a 4xx. #}
+{% macro ledger_ingress(name, host, service, port, mcp=false) %}
+{% if k8s_platform == 'ocp' %}
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ name }}
+  namespace: {{ LEDGER_NAMESPACE }}
+spec:
+  host: {{ host }}
+  port:
+    targetPort: {{ 'mcp-port' if mcp else 'web-port' }}
+  tls:
+{% if k8s_lb_protocol == 'https' and not mcp %}
+    termination: passthrough
+{% else %}
+    termination: edge
+{% endif %}
+    insecureEdgeTerminationPolicy: Redirect
+  to:
+    kind: Service
+    name: {{ service }}
+    weight: 100
+  wildcardPolicy: None
+{% elif k8s_platform in ['aks', 'gke'] %}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+{% if k8s_lb_protocol == 'https'  %}
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+{% endif %}
+  name: {{ name }}
+  namespace: {{ LEDGER_NAMESPACE }}
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: {{ host }}
+    http:
+      paths:
+      - backend:
+          service:
+            name: {{ service }}
+            port:
+              number: {{ port }}
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - {{ host }}
+    secretName: ascender-tls-secret
+{% elif k8s_platform == 'eks' %}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: alb
+{% if mcp %}
+    alb.ingress.kubernetes.io/load-balancer-name: "{{ (EKS_CLUSTER_NAME ~ '-ledger-mcp')[:32] }}"
+{% else %}
+    alb.ingress.kubernetes.io/load-balancer-name: "{{ EKS_CLUSTER_NAME }}-ledger"
+{% endif %}
+    alb.ingress.kubernetes.io/scheme: "{{ 'internet-facing' if EKS_PUBLIC else 'internal' }}"
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+{% if mcp %}
+    alb.ingress.kubernetes.io/success-codes: "200-499"
+{% else %}
+    alb.ingress.kubernetes.io/success-codes: "200,302"
+{% endif %}
+    alb.ingress.kubernetes.io/certificate-arn: "{{ certificate.certificate_arn }}"
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/backend-protocol: HTTP
+    alb.ingress.kubernetes.io/ssl-policy: "{{ EKS_SSL_POLICY }}"
+    alb.ingress.kubernetes.io/inbound-cidrs: "{{ EKS_ALB_INBOUND_CIDRS | join(',') }}"
+{% if EKS_ALB_SECURITY_GROUPS is defined %}
+    alb.ingress.kubernetes.io/security-groups: "{{ EKS_ALB_SECURITY_GROUPS }}"
+    alb.ingress.kubernetes.io/manage-backend-security-group-rules: "true"
+{% endif %}
+  name: {{ name }}
+  namespace: {{ LEDGER_NAMESPACE }}
+spec:
+  rules:
+  - host: {{ host }}
+    http:
+      paths:
+      - backend:
+          service:
+            name: {{ service }}
+            port:
+              number: {{ port }}
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - {{ host }}
+{% elif k8s_platform == 'tkgi' %}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+{% if TKGI_INGRESS_ANNOTATIONS is defined and TKGI_INGRESS_ANNOTATIONS | length > 0 %}
+  annotations:
+{{ TKGI_INGRESS_ANNOTATIONS | indent(4, true) }}
+{% endif %}
+  namespace: {{ LEDGER_NAMESPACE }}
+  name: {{ name }}
+spec:
+{% if TKGI_INGRESS_CLASS_NAME is defined and TKGI_INGRESS_CLASS_NAME | length > 0 %}
+  ingressClassName: {{ TKGI_INGRESS_CLASS_NAME }}
+{% endif %}
+  rules:
+    - host: {{ host }}
+      http:
+        paths:
+{% if k8s_lb_protocol == 'https'  %}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ service }}
+                port:
+                  number: {{ port }}
+      tls:
+        - hosts:
+          - {{ host }}
+          secretName: ascender-tls-secret
+{% else %}
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: {{ service }}
+              port:
+                number: {{ port }}
+{% endif %}
+{% elif not ledger_nodeport %}
+{#- k3s (unless NodePort), dkp and rke2 #}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  namespace: {{ LEDGER_NAMESPACE }}
+  name: {{ name }}
+spec:
+{% if k8s_platform in ['k3s', 'dkp'] %}
+  ingressClassName: traefik
+{% endif %}
+  rules:
+    - host: {{ host }}
+      http:
+        paths:
+{% if k8s_lb_protocol == 'https'  %}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ service }}
+                port:
+                  number: {{ port }}
+      tls:
+        - hosts:
+          - {{ host }}
+          secretName: ascender-tls-secret
+{% else %}
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: {{ service }}
+              port:
+                number: {{ port }}
+{% endif %}
+{% endif %}
+{% endmacro %}
+{#- Volumes shared by the web, parser, scheduler and migration pods. #}
+{% macro secret_volume(name, key, secret) %}
+      - name: {{ name }}
+        secret:
+          items:
+          - key: {{ key }}
+            path: {{ key }}
+          secretName: {{ secret }}
+{% endmacro %}
+{% if ledger_ocp %}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ ledger_service_account_name }}
+  namespace: {{ LEDGER_NAMESPACE }}
+---
+{% endif %}
+apiVersion: v1
+stringData:
+  admin-password: {{ LEDGER_ADMIN_PASSWORD }}
+kind: Secret
+metadata:
+  labels:
+    io.kompose.service: admin-password
+  name: admin-password
+  namespace: {{ LEDGER_NAMESPACE }}
+type: Opaque
+---
+apiVersion: v1
+stringData:
+  config.json: |
+    {
+      "db_host": "{{ LEDGER_DB_HOST }}",
+      "db_port": "{{ LEDGER_DB_PORT }}",
+      "db_name": "{{ LEDGER_DB_NAME }}",
+      "db_username": "{{ LEDGER_DB_USERNAME }}",
+{% if LEDGER_DB_SSLMODE | default('', true) | length > 0 %}
+      "db_password": "{{ LEDGER_DB_PASSWORD }}",
+      "db_sslmode": "{{ LEDGER_DB_SSLMODE }}"
+{% else %}
+      "db_password": "{{ LEDGER_DB_PASSWORD }}"
+{% endif %}
+    }
+  # Read by the internal PostgreSQL StatefulSet (POSTGRESQL_DATABASE / POSTGRESQL_USER).
+  db-name: "{{ LEDGER_DB_NAME }}"
+  db-username: "{{ LEDGER_DB_USERNAME }}"
+kind: Secret
+metadata:
+  labels:
+    io.kompose.service: db-settings
+  name: db-settings
+  namespace: {{ LEDGER_NAMESPACE }}
+type: Opaque
+{# platform: EKS terminates TLS on the ALB with an ACM certificate, so it has no TLS Secret. #}
+{% if k8s_lb_protocol == 'https' and k8s_platform != 'eks' %}
+---
+apiVersion: v1
+data:
+  tls.crt: {{ lookup('ansible.builtin.file', tls_crt_path) | b64encode }}
+  tls.key: {{ lookup('ansible.builtin.file', tls_key_path) | b64encode }}
+kind: Secret
+metadata:
+  name: ascender-tls-secret
+  namespace: {{ LEDGER_NAMESPACE }}
+type: kubernetes.io/tls
+{% endif %}
+---
+apiVersion: v1
+stringData:
+  db-ledger-password: {{ LEDGER_DB_PASSWORD }}
+kind: Secret
+metadata:
+  labels:
+    io.kompose.service: db-ledger-password
+  name: db-ledger-password
+  namespace: {{ LEDGER_NAMESPACE }}
+type: Opaque
+{% if _db_internal %}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    io.kompose.service: postgres
+  name: postgres
+  namespace: {{ LEDGER_NAMESPACE }}
+spec:
+  type: ClusterIP
+  ports:
+  - name: postgres
+    port: 5432
+    targetPort: 5432
+    protocol: TCP
+  selector:
+    io.kompose.service: postgres
+{% endif %}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    io.kompose.service: parser
+  name: parser
+  namespace: {{ LEDGER_NAMESPACE }}
+spec:
+{% if ledger_nodeport %}
+  type: NodePort
+{% else %}
+  type: ClusterIP
+{% endif %}
+  ports:
+  - name: parser-port
+    port: 5000
+    targetPort: 5000
+    protocol: TCP
+{% if ledger_nodeport %}
+    nodePort: 30500
+{% endif %}
+  selector:
+    io.kompose.service: parser
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    io.kompose.service: web-svc
+  name: web-svc
+  namespace: {{ LEDGER_NAMESPACE }}
+spec:
+{% if ledger_nodeport %}
+  type: NodePort
+{% else %}
+  type: ClusterIP
+{% endif %}
+  ports:
+  - name: web-port
+    port: {{ ledger_web_svc_port }}
+    targetPort: 80
+{% if ledger_nodeport %}
+    nodePort: 30081
+{% endif %}
+  selector:
+    io.kompose.service: web
+{{ ledger_ingress('web-route' if ledger_ocp else 'ledger-web-ingress', LEDGER_HOSTNAME, 'web-svc', ledger_web_svc_port) }}
+{%- if ledger_ocp %}
+# IN OCP, CAN NOT HAVE 2 ROUTES TO DIFFERENT SERVICES WITH SAME HOSTNAME
+{% endif %}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    io.kompose.service: ledger-data
+  name: ledger-data
+  namespace: {{ LEDGER_NAMESPACE }}
+spec:
+  accessModes:
+  - {{ ledger_data_access_mode | default(LEDGER_DATA_ACCESS_MODE | default('ReadWriteMany', true)) }}
+{% if LEDGER_DATA_STORAGE_CLASS | default('', true) | length > 0 %}
+  storageClassName: {{ LEDGER_DATA_STORAGE_CLASS }}
+{% endif %}
+  resources:
+    requests:
+      storage: {{ LEDGER_DATA_PVC_SIZE_GB | default(10) }}Gi
+{% if _db_internal %}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    io.kompose.service: postgres-data
+  name: postgres-data
+  namespace: {{ LEDGER_NAMESPACE }}
+spec:
+  accessModes:
+  - ReadWriteOnce
+{% if LEDGER_PVC_STORAGE_CLASS | default('', true) | length > 0 %}
+  storageClassName: {{ LEDGER_PVC_STORAGE_CLASS }}
+{% endif %}
+  resources:
+    requests:
+      storage: {{ LEDGER_PVC_SIZE_GB | default(10) }}Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    io.kompose.service: postgres
+  name: postgres
+  namespace: {{ LEDGER_NAMESPACE }}
+spec:
+  serviceName: postgres
+  revisionHistoryLimit: 1
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: postgres
+  template:
+    metadata:
+      annotations:
+        # Restarts PostgreSQL when LEDGER_DB_PASSWORD changes: the image sets the
+        # user's password from POSTGRESQL_PASSWORD on every start.
+        ledger.ciq.com/db-password-sha256: "{{ LEDGER_DB_PASSWORD | hash('sha256') }}"
+      labels:
+        io.kompose.network/ledger-default: "true"
+        io.kompose.service: postgres
+    spec:
+{% if not ledger_ocp %}
+      # The image runs PostgreSQL as UID 26. On OpenShift this block is left out and the
+      # restricted-v2 SCC assigns a UID and fsGroup from the namespace range instead, which the
+      # image supports (the pod runs under the namespace's default service account, not the
+      # Ledger one that has anyuid).
+      securityContext:
+        runAsUser: 26
+        runAsGroup: 26
+        runAsNonRoot: true
+        fsGroup: 26
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+{% endif %}
+      containers:
+      - name: postgres
+        image: {{ _postgres_image }}
+        imagePullPolicy: {{ pull_policy() }}
+        env:
+        - name: POSTGRESQL_USER
+          valueFrom:
+            secretKeyRef:
+              name: db-settings
+              key: db-username
+        - name: POSTGRESQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-ledger-password
+              key: db-ledger-password
+        - name: POSTGRESQL_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: db-settings
+              key: db-name
+        - name: POSTGRESQL_MAX_CONNECTIONS
+          value: "{{ LEDGER_POSTGRES_MAX_CONNECTIONS | default(200) }}"
+        ports:
+        - containerPort: 5432
+          name: postgres
+          protocol: TCP
+        startupProbe:
+          exec:
+            command: ["/bin/sh", "-c", "pg_isready -h 127.0.0.1 -p 5432 -q"]
+          periodSeconds: 10
+          failureThreshold: 90
+        readinessProbe:
+          exec:
+            command: ["/bin/sh", "-c", "pg_isready -h 127.0.0.1 -p 5432 -q"]
+          periodSeconds: 10
+          timeoutSeconds: 5
+        livenessProbe:
+          exec:
+            command: ["/bin/sh", "-c", "pg_isready -h 127.0.0.1 -p 5432 -q"]
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 6
+        resources: {}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - mountPath: /var/lib/pgsql/data
+          name: postgres-data
+{{ pull_secrets() }}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 60
+      volumes:
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: postgres-data
+{% endif %}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    io.kompose.service: parser
+  name: parser
+  namespace: {{ LEDGER_NAMESPACE }}
+spec:
+  revisionHistoryLimit: 1
+  replicas: {{ ledger_parser_replicas }}
+  selector:
+    matchLabels:
+      io.kompose.service: parser
+  strategy: {}
+  template:
+    metadata:
+{% if not ledger_ocp %}
+      annotations:
+        kompose.cmd: kompose convert
+        kompose.version: 1.28.0 (c4137012e)
+{% endif %}
+      labels:
+        io.kompose.network/ledger-default: "true"
+        io.kompose.service: parser
+    spec:
+{% if ledger_ocp %}
+      serviceAccountName: {{ ledger_service_account_name }}
+{% endif %}
+      containers:
+      - env:
+        - name: MYSQL_LEDGER_PASSWORD
+          value: /run/secrets/db-ledger-password
+        image: {{ ledger_image('ledger-parser', LEDGER_PARSER_IMAGE) }}
+        imagePullPolicy: {{ pull_policy() }}
+        name: parser
+        ports:
+        - containerPort: 5000
+          protocol: TCP
+        resources: {}
+        volumeMounts:
+        - mountPath: /run/secrets/db-ledger-password
+          name: db-ledger-password
+{% if ledger_ocp %}
+        - mountPath: /run/secrets/admin-password
+          name: admin-password
+{% endif %}
+        - mountPath: /run/secrets/db-settings
+          name: db-settings
+{{ pull_secrets() }}
+      restartPolicy: Always
+      volumes:
+{{ secret_volume('db-ledger-password', 'db-ledger-password', 'db-ledger-password') }}
+{%- if ledger_ocp %}
+{{ secret_volume('admin-password', 'admin-password', 'admin-password') }}
+{%- endif %}
+{{ secret_volume('db-settings', 'config.json', 'db-settings') }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    io.kompose.service: web
+  name: web
+  namespace: {{ LEDGER_NAMESPACE }}
+spec:
+  revisionHistoryLimit: 1
+  replicas: {{ ledger_web_replicas }}
+  selector:
+    matchLabels:
+      io.kompose.service: web
+  strategy: {}
+  template:
+    metadata:
+{% if not ledger_ocp %}
+      annotations:
+        kompose.cmd: kompose convert
+        kompose.version: 1.28.0 (c4137012e)
+{% endif %}
+      labels:
+        io.kompose.network/ledger-default: "true"
+        io.kompose.service: web
+    spec:
+{% if ledger_ocp %}
+      serviceAccountName: {{ ledger_service_account_name }}
+{% endif %}
+      containers:
+      - env:
+        - name: MYSQL_LEDGER_PASSWORD
+          value: /run/secrets/db-ledger-password
+        - name: DATA_DIR
+          value: /app/data
+        image: {{ ledger_image('ledger-web', LEDGER_WEB_IMAGE) }}
+        imagePullPolicy: {{ pull_policy() }}
+        name: web
+        ports:
+        - containerPort: 80
+          protocol: TCP
+        resources: {}
+        volumeMounts:
+        - mountPath: /run/secrets/db-ledger-password
+          name: db-ledger-password
+        - mountPath: /run/secrets/admin-password
+          name: admin-password
+        - mountPath: /run/secrets/db-settings
+          name: db-settings
+        # Shared with ledger-scheduler (advisory data, air-gap bundles).
+        - mountPath: /app/data
+          name: ledger-data
+{{ pull_secrets() }}
+      restartPolicy: Always
+      volumes:
+{{ secret_volume('db-ledger-password', 'db-ledger-password', 'db-ledger-password') }}
+{{ secret_volume('admin-password', 'admin-password', 'admin-password') }}
+{{ secret_volume('db-settings', 'config.json', 'db-settings') }}
+      - name: ledger-data
+        persistentVolumeClaim:
+          claimName: ledger-data
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    io.kompose.service: scheduler
+  name: scheduler
+  namespace: {{ LEDGER_NAMESPACE }}
+spec:
+  revisionHistoryLimit: 1
+  # The scheduler runs the advisory downloads and job queue: exactly one instance, and the old
+  # pod is stopped before the new one starts.
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: scheduler
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        io.kompose.network/ledger-default: "true"
+        io.kompose.service: scheduler
+    spec:
+{% if ledger_ocp %}
+      serviceAccountName: {{ ledger_service_account_name }}
+{% endif %}
+      initContainers:
+      # The image ships a snapshot of the advisory data in /app/data, which the ledger-data
+      # volume hides. Copy it onto the volume once (without overwriting anything already there)
+      # and leave a marker so later restarts and upgrades do not copy again.
+      - name: seed-data
+        image: {{ ledger_image('ledger-scheduler', LEDGER_SCHEDULER_IMAGE) }}
+        imagePullPolicy: {{ pull_policy() }}
+        command:
+        - /bin/sh
+        - -c
+        - |
+          if [ -e /seed/.installer-seeded ] || [ ! -d /app/data ]; then
+            echo "ledger-data volume already seeded"
+          else
+            echo "Seeding the ledger-data volume from the image"
+            cp -a -n /app/data/. /seed/ && touch /seed/.installer-seeded
+          fi
+        resources: {}
+        volumeMounts:
+        - mountPath: /seed
+          name: ledger-data
+      containers:
+      - env:
+        - name: DATA_DIR
+          value: /app/data
+        image: {{ ledger_image('ledger-scheduler', LEDGER_SCHEDULER_IMAGE) }}
+        imagePullPolicy: {{ pull_policy() }}
+        name: scheduler
+        resources: {}
+        volumeMounts:
+        - mountPath: /run/secrets/db-ledger-password
+          name: db-ledger-password
+        - mountPath: /run/secrets/db-settings
+          name: db-settings
+        - mountPath: /app/data
+          name: ledger-data
+{{ pull_secrets() }}
+      restartPolicy: Always
+      volumes:
+{{ secret_volume('db-ledger-password', 'db-ledger-password', 'db-ledger-password') }}
+{{ secret_volume('db-settings', 'config.json', 'db-settings') }}
+      - name: ledger-data
+        persistentVolumeClaim:
+          claimName: ledger-data
+{% if ledger_mcp_enabled %}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    io.kompose.service: mcp
+  name: mcp
+  namespace: {{ LEDGER_NAMESPACE }}
+spec:
+  type: ClusterIP
+  ports:
+  - name: mcp-port
+    port: {{ ledger_mcp_port }}
+    targetPort: {{ ledger_mcp_port }}
+    protocol: TCP
+  selector:
+    io.kompose.service: mcp
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    io.kompose.service: mcp
+  name: mcp
+  namespace: {{ LEDGER_NAMESPACE }}
+spec:
+  revisionHistoryLimit: 1
+  replicas: {{ ledger_mcp_replicas | default(1) }}
+  selector:
+    matchLabels:
+      io.kompose.service: mcp
+  template:
+    metadata:
+      labels:
+        io.kompose.network/ledger-default: "true"
+        io.kompose.service: mcp
+    spec:
+{% if ledger_ocp %}
+      serviceAccountName: {{ ledger_service_account_name }}
+{% endif %}
+      containers:
+      - env:
+        - name: MCP_PORT
+          value: "{{ ledger_mcp_port }}"
+        # The MCP server holds no credentials: it forwards each client's Authorization header
+        # to the Ledger REST API on the web Service.
+        - name: LEDGER_API_URL
+          value: "http://web-svc{{ '' if ledger_web_svc_port == 80 else ':' ~ ledger_web_svc_port }}"
+        image: {{ ledger_image('ledger-mcp', LEDGER_MCP_IMAGE) }}
+        imagePullPolicy: {{ pull_policy() }}
+        name: mcp
+        ports:
+        - containerPort: {{ ledger_mcp_port }}
+          protocol: TCP
+        readinessProbe:
+          tcpSocket:
+            port: {{ ledger_mcp_port }}
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: {{ ledger_mcp_port }}
+          periodSeconds: 30
+        resources: {}
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          capabilities:
+            drop:
+            - ALL
+{{ pull_secrets() }}
+      restartPolicy: Always
+{% if LEDGER_MCP_HOSTNAME | default('', true) | length > 0 %}
+{{ ledger_ingress('mcp-route' if ledger_ocp else 'ledger-mcp-ingress', LEDGER_MCP_HOSTNAME, 'mcp', ledger_mcp_port, true) }}
+{%- endif %}
+{% endif %}

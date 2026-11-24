@@ -25,7 +25,7 @@
     - name: "Run ledger_install role for {{ k8s_platform }}"
       ansible.builtin.include_role:
         name: ledger_install
-        tasks_from: "ledger_install_{{ k8s_platform }}"
+        tasks_from: main
 
     - ansible.builtin.debug:
         msg: "Ledger install complete."
