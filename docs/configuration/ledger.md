@@ -122,17 +122,28 @@ still has the MariaDB Deployment `db` (or the `mysql-data` volume) migrates it:
 7. Once Ledger answers with HTTP 200, scales the `db` Deployment to 0 and deletes it and its
    Service. The `mysql-data` volume is **kept** unless `LEDGER_REMOVE_MARIADB_PVC: true`.
 
-Progress is recorded in the ConfigMap `ledger-postgres-migration` (`phase`: `started`, `failed`,
-`completed`, plus the backup path). Re-running is safe:
+Progress is recorded in the ConfigMap `ledger-postgres-migration`: `phase` (`started`,
+`failed`, `completed` or `skipped`), `copied`, the MariaDB database name and user
+(`source_db_name`, `source_db_username`), the PostgreSQL database and volume a completed copy
+went into (`target`, `target_volume_uid`), the latest backup (`mariadb_backup`) and the one taken
+before the first attempt (`mariadb_backup_pre_migration`). Re-running is safe:
 
 - After a completed migration nothing is copied again; a leftover `db` Deployment is removed.
+  The record counts only for the PostgreSQL database and volume it names: if `postgres-data`
+  was deleted (an uninstall) or `LEDGER_DB_*` now name another database, it is ignored and the
+  MariaDB data is treated as not migrated, so it is neither left behind nor deleted.
 - After a failed or interrupted copy the migration runs again with `--force`, overwriting the
   partial PostgreSQL data. Until a copy succeeds, `db-settings` and MariaDB are untouched.
-- If PostgreSQL already holds data and there is no record, the installer assumes the migration
-  was done another way and does not copy. `LEDGER_MIGRATION_FORCE: true` copies anyway,
-  overwriting PostgreSQL.
-- `LEDGER_SKIP_MARIADB_MIGRATION: true` installs with an empty database and leaves the MariaDB
-  objects alone.
+- If PostgreSQL already holds tables and there is no record of a migration into it, the
+  installer stops without changing anything: it cannot tell whether those tables are the
+  MariaDB data. Set `LEDGER_MIGRATION_FORCE: true` to replace them with a fresh copy, or
+  `LEDGER_SKIP_MARIADB_MIGRATION: true` to keep them and leave MariaDB in place.
+- `LEDGER_SKIP_MARIADB_MIGRATION: true` installs with an empty database (or keeps PostgreSQL as
+  it is after a failed attempt) and leaves the MariaDB objects alone; the record says
+  `skipped`. Ledger then writes to PostgreSQL, so turning the skip off later stops the
+  installer until `LEDGER_MIGRATION_FORCE: true` confirms that this data may be replaced. The
+  MariaDB volume is only ever deleted (`LEDGER_REMOVE_MARIADB_PVC`) after a migration Job
+  copied it.
 - If only the `mysql-data` volume is left (no `db` Deployment) and nothing was migrated, the
   installer stops: bring the `db` Deployment back with the previous installer version first, or
   skip the migration.
@@ -153,7 +164,14 @@ Delete the old volume once you are satisfied: `kubectl -n ledger delete pvc mysq
 Roll back with the `mysqldump` backup, because the migration upgrades the MariaDB schema in
 place and a Ledger release from before PostgreSQL may not accept the upgraded schema.
 
-1. Remove the PostgreSQL-era objects (this deletes the PostgreSQL data). The MariaDB `db`
+1. Note which backup to restore: the one taken before the first attempt. A retry dumps MariaDB
+   again, and after a failed attempt that later dump may already hold the upgraded schema.
+
+   ```bash
+   kubectl -n ledger get configmap ledger-postgres-migration -o jsonpath='{.data.mariadb_backup_pre_migration}'
+   ```
+
+2. Remove the PostgreSQL-era objects (this deletes the PostgreSQL data). The MariaDB `db`
    Deployment is still running after a failed migration; it goes first, because a volume
    cannot be deleted while a pod mounts it (it is already gone after a successful one):
 
@@ -166,10 +184,10 @@ place and a Ledger release from before PostgreSQL may not accept the upgraded sc
    kubectl -n ledger delete job ledger-mariadb-migration --ignore-not-found
    ```
 
-2. Check out the installer version you used before (the commit before the PostgreSQL change),
+3. Check out the installer version you used before (the commit before the PostgreSQL change),
    pin `LEDGER_VERSION` to the Ledger release you ran before, and run that installer. It creates
    a fresh MariaDB `db` Deployment and an empty `mysql-data` volume.
-3. Load the backup into it (the dump re-creates every table):
+4. Load the backup noted in step 1 into it (the dump re-creates every table):
 
    ```bash
    kubectl -n ledger exec -i deploy/db -- mysql < ascender_install_artifacts/ledger-mariadb-backup.<timestamp>.sql

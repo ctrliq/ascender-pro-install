@@ -47,6 +47,21 @@
     - not (ledger_db_internal | bool)
     - (LEDGER_DB_PORT | string | trim) == '3306'
 
+# MCP clients send Ledger credentials with every request. Published over plain HTTP, they cross
+# the network unencrypted, as the Ledger UI's own login does on such an install.
+- name: Warn that the published MCP endpoint is plain HTTP
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: LEDGER_MCP_HOSTNAME publishes the MCP server with k8s_lb_protocol: http. MCP
+      clients send Ledger credentials with every request, so they cross the network
+      unencrypted. Use k8s_lb_protocol: https, or leave LEDGER_MCP_HOSTNAME empty and reach the
+      server inside the cluster.
+  when:
+    - LEDGER_MCP_INSTALL | default(true) | bool
+    - LEDGER_MCP_HOSTNAME | default('', true) | length > 0
+    - k8s_lb_protocol | default('http') == 'http'
+    - k8s_platform not in ['eks', 'ocp']
+
 # --- Scheduler data volume -----------------------------------------------------
 
 # Only the scheduler mounts ledger-data (the web pods reach the advisory data through the

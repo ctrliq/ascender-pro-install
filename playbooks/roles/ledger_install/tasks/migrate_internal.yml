@@ -33,8 +33,9 @@
     ledger_migration_source:
       host: db
       port: "3306"
-      name: "{{ ledger_old_config.db_name | default(LEDGER_DB_NAME, true) }}"
-      username: "{{ ledger_old_config.db_username | default(LEDGER_DB_USERNAME, true) }}"
+      # Saved by detect_mariadb.yml from before db-settings was switched to PostgreSQL.
+      name: "{{ ledger_mariadb_source.name }}"
+      username: "{{ ledger_mariadb_source.username }}"
       # The old database image strips non-ASCII characters from the password it sets.
       password: "{{ ledger_old_config.db_password | default(LEDGER_DB_PASSWORD, true) | regex_replace('[^\\x00-\\x7F]', '') }}"
     ledger_old_db_password: "{{ ledger_old_config.db_password | default(LEDGER_DB_PASSWORD, true) }}"
@@ -67,6 +68,9 @@
         phase: started
         copied: "false"
         started_at: "{{ ansible_date_time.iso8601 }}"
+        source_db_name: "{{ ledger_mariadb_source.name }}"
+        source_db_username: "{{ ledger_mariadb_source.username }}"
+        mariadb_backup_pre_migration: "{{ ledger_migration_record_data.mariadb_backup_pre_migration | default('') }}"
     context: "{{ ledger_k8s_context | default(omit) }}"
     kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
     verify_ssl: false
@@ -133,6 +137,10 @@
 - name: Set the backup file names
   ansible.builtin.set_fact:
     ledger_old_db_pod: "{{ ledger_old_db_pods.resources[0].metadata.name }}"
+    # The first backup of this migration was taken before any migration Job ran, so it is the
+    # only one sure to hold the original schema: a failed Job may already have upgraded MariaDB
+    # in place, and later dumps then carry the upgraded schema.
+    ledger_mariadb_backup_original: "{{ ledger_migration_record_data.mariadb_backup_pre_migration | default('') }}"
     ledger_mariadb_backup_remote: /tmp/ledger-mariadb-backup.sql
     ledger_mariadb_backup_local: "{{ tmp_dir }}/ledger-mariadb-backup.{{ ansible_date_time.iso8601_basic_short }}.sql"
 
@@ -142,13 +150,15 @@
   kubernetes.core.k8s_exec:
     namespace: "{{ LEDGER_NAMESPACE }}"
     pod: "{{ ledger_old_db_pod }}"
+    # The database name and the file are positional arguments ("$1", "$2"), never part of the
+    # script text, so a name with spaces or shell characters is passed through as it is.
     command: >-
       bash -c 'set -o pipefail;
       DUMP=$(command -v mariadb-dump || command -v mysqldump) || exit 127;
       for i in $(seq 1 30); do mysqladmin ping >/dev/null 2>&1 && break; sleep 2; done;
       "$DUMP" --single-transaction --routines --triggers --events --hex-blob
-      --databases {{ ledger_migration_source.name }} > {{ ledger_mariadb_backup_remote }}
-      && stat -c %s {{ ledger_mariadb_backup_remote }}'
+      --databases "$1" > "$2"
+      && stat -c %s "$2"' ledger-backup {{ ledger_migration_source.name | quote }} {{ ledger_mariadb_backup_remote | quote }}
     context: "{{ ledger_k8s_context | default(omit) }}"
     kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
     verify_ssl: false
@@ -193,7 +203,7 @@
   kubernetes.core.k8s_exec:
     namespace: "{{ LEDGER_NAMESPACE }}"
     pod: "{{ ledger_old_db_pod }}"
-    command: rm -f {{ ledger_mariadb_backup_remote }}
+    command: rm -f {{ ledger_mariadb_backup_remote | quote }}
     context: "{{ ledger_k8s_context | default(omit) }}"
     kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
     verify_ssl: false
@@ -208,12 +218,17 @@
     definition:
       data:
         mariadb_backup: "{{ ledger_mariadb_backup_local }}"
+        mariadb_backup_pre_migration: "{{ ledger_mariadb_backup_original or ledger_mariadb_backup_local }}"
     context: "{{ ledger_k8s_context | default(omit) }}"
     kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
     verify_ssl: false
 
 - ansible.builtin.debug:
-    msg: "MariaDB backup saved to {{ ledger_mariadb_backup_local }} ({{ ledger_mariadb_backup_stat.stat.size }} bytes). Keep it until you have checked the migrated Ledger."
+    msg: >-
+      MariaDB backup saved to {{ ledger_mariadb_backup_local }} ({{ ledger_mariadb_backup_stat.stat.size }} bytes).
+      {{ ('An earlier attempt may already have upgraded the MariaDB schema: to roll back, restore the backup taken before the first attempt, '
+          ~ ledger_mariadb_backup_original ~ '.') if ledger_mariadb_backup_original | length > 0
+         else 'Keep it until you have checked the migrated Ledger: it is the rollback copy.' }}
 
 - name: Deploy PostgreSQL
   ansible.builtin.include_tasks: postgres_deploy.yml

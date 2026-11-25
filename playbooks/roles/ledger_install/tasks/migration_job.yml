@@ -96,6 +96,20 @@
       {{ ledger_migration_job.resources | length > 0
          and (ledger_migration_job.resources[0].status.succeeded | default(0)) > 0 }}
 
+# Ties the record to the database the copy went into: if this volume is later deleted (an
+# uninstall) the record no longer counts as a completed migration (detect_mariadb.yml).
+- name: Look up the PostgreSQL volume the copy went into
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: postgres-data
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  register: ledger_migration_target_pvc
+  when: ledger_db_internal | bool
+
 - name: Record the migration result
   kubernetes.core.k8s:
     state: present
@@ -111,8 +125,14 @@
         copied: "{{ 'true' if ledger_migration_succeeded | bool else 'false' }}"
         source: "{{ ledger_migration_source.host }}:{{ ledger_migration_source.port }}/{{ ledger_migration_source.name }}"
         target: "{{ LEDGER_DB_HOST }}:{{ LEDGER_DB_PORT }}/{{ LEDGER_DB_NAME }}"
+        target_volume_uid: "{{ (ledger_migration_target_pvc.resources | default([]) | first | default({})).metadata.uid | default('') }}"
         finished_at: "{{ ansible_date_time.iso8601 }}"
         mariadb_backup: "{{ ledger_mariadb_backup_local | default('') }}"
+        # Written out again rather than relying on the patch to keep them.
+        mariadb_backup_pre_migration: >-
+          {{ (ledger_mariadb_backup_original | default('')) or (ledger_mariadb_backup_local | default('')) }}
+        source_db_name: "{{ ledger_migration_source.name }}"
+        source_db_username: "{{ ledger_migration_source.username }}"
     context: "{{ ledger_k8s_context | default(omit) }}"
     kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
     verify_ssl: false

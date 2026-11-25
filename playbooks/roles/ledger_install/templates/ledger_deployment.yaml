@@ -226,7 +226,7 @@ metadata:
 {% endif %}
 apiVersion: v1
 stringData:
-  admin-password: {{ LEDGER_ADMIN_PASSWORD }}
+  admin-password: {{ LEDGER_ADMIN_PASSWORD | string | to_json }}
 kind: Secret
 metadata:
   labels:
@@ -237,22 +237,24 @@ type: Opaque
 ---
 apiVersion: v1
 stringData:
+  # Every value is JSON-encoded, so passwords and names with quotes, backslashes or YAML
+  # characters reach Ledger unchanged.
   config.json: |
     {
-      "db_host": "{{ LEDGER_DB_HOST }}",
-      "db_port": "{{ LEDGER_DB_PORT }}",
-      "db_name": "{{ LEDGER_DB_NAME }}",
-      "db_username": "{{ LEDGER_DB_USERNAME }}",
+      "db_host": {{ LEDGER_DB_HOST | string | to_json }},
+      "db_port": {{ LEDGER_DB_PORT | string | to_json }},
+      "db_name": {{ LEDGER_DB_NAME | string | to_json }},
+      "db_username": {{ LEDGER_DB_USERNAME | string | to_json }},
 {% if LEDGER_DB_SSLMODE | default('', true) | length > 0 %}
-      "db_password": "{{ LEDGER_DB_PASSWORD }}",
-      "db_sslmode": "{{ LEDGER_DB_SSLMODE }}"
+      "db_password": {{ LEDGER_DB_PASSWORD | string | to_json }},
+      "db_sslmode": {{ LEDGER_DB_SSLMODE | string | to_json }}
 {% else %}
-      "db_password": "{{ LEDGER_DB_PASSWORD }}"
+      "db_password": {{ LEDGER_DB_PASSWORD | string | to_json }}
 {% endif %}
     }
   # Read by the internal PostgreSQL StatefulSet (POSTGRESQL_DATABASE / POSTGRESQL_USER).
-  db-name: "{{ LEDGER_DB_NAME }}"
-  db-username: "{{ LEDGER_DB_USERNAME }}"
+  db-name: {{ LEDGER_DB_NAME | string | to_json }}
+  db-username: {{ LEDGER_DB_USERNAME | string | to_json }}
 kind: Secret
 metadata:
   labels:
@@ -276,7 +278,7 @@ type: kubernetes.io/tls
 ---
 apiVersion: v1
 stringData:
-  db-ledger-password: {{ LEDGER_DB_PASSWORD }}
+  db-ledger-password: {{ LEDGER_DB_PASSWORD | string | to_json }}
 kind: Secret
 metadata:
   labels:
@@ -561,11 +563,14 @@ spec:
   strategy: {}
   template:
     metadata:
-{% if not ledger_ocp %}
       annotations:
+{% if not ledger_ocp %}
         kompose.cmd: kompose convert
         kompose.version: 1.28.0 (c4137012e)
 {% endif %}
+        # Ledger applies the admin-password Secret when it starts, so a new password must roll
+        # the web pods. A salted digest, so the annotation does not expose the password.
+        ledger.ciq.com/admin-password-digest: {{ ('ledger-admin-password:' ~ LEDGER_DB_PASSWORD ~ ':' ~ LEDGER_ADMIN_PASSWORD) | hash('sha256') | to_json }}
       labels:
         io.kompose.network/ledger-default: "true"
         io.kompose.service: web
