@@ -1,0 +1,38 @@
+# Sets ledger_postgres_populated: whether the internal PostgreSQL database already
+# holds tables. Expects the postgres StatefulSet to exist.
+
+- name: Wait for the PostgreSQL StatefulSet to be ready
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: StatefulSet
+    name: postgres
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    wait: true
+    wait_sleep: 10
+    wait_timeout: 600
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+
+- name: Count the tables in the PostgreSQL database
+  kubernetes.core.k8s_exec:
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    pod: postgres-0
+    container: postgres
+    # The image sets these variables; the query has no quotes so it survives both shells.
+    command: >-
+      bash -c 'PGPASSWORD="$POSTGRESQL_PASSWORD" psql -h 127.0.0.1 -U "$POSTGRESQL_USER"
+      -d "$POSTGRESQL_DATABASE" -tAc "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname = current_schema()"'
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  register: ledger_postgres_tables
+  changed_when: false
+  failed_when: ledger_postgres_tables.rc | default(1) != 0
+  retries: 12
+  delay: 10
+  until: ledger_postgres_tables.rc | default(1) == 0
+
+- name: Record whether PostgreSQL already holds Ledger data
+  ansible.builtin.set_fact:
+    ledger_postgres_populated: "{{ (ledger_postgres_tables.stdout | trim | int) > 0 }}"

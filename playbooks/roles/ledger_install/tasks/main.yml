@@ -1,0 +1,381 @@
+# Installs or upgrades Ledger on any k8s_platform. Platform-specific steps live in
+# platform_<platform>_pre.yml (before anything is applied) and platform_<platform>_dns.yml
+# (publishing LEDGER_HOSTNAME); everything else is shared.
+
+# Before prepare.yml: on TKGI this sets the kubeconfig and context every later call uses.
+- name: Run the platform-specific preparation for {{ k8s_platform }}
+  ansible.builtin.include_tasks: "platform_{{ k8s_platform }}_pre.yml"
+  when: k8s_platform in ['eks', 'ocp', 'tkgi']
+
+- name: Settle the Ledger variables
+  ansible.builtin.include_tasks: prepare.yml
+
+- name: Import images
+  ansible.builtin.shell:
+    cmd: k3s ctr images import {{ item }}
+  with_fileglob:
+    - "{{ playbook_dir }}/../offline/images/ledger*.tar"
+  when:
+    - k8s_platform == 'k3s'
+    - k8s_offline | bool
+
+- name: Generate manifest to install Ledger k8s object with timestamp attached, for purposes of deletion later
+  ansible.builtin.template:
+    src: ledger_deployment.yaml
+    dest: "{{ tmp_dir }}/ledger_deployment_{{ k8s_platform }}.yaml.{{ ansible_date_time.iso8601_basic_short }}"
+    mode: "0600"
+
+- name: Generate manifest for the Ledger registry secret with timestamp, for purposes of deletion later
+  when: DEPOT_REGISTRY.BASE is defined
+  ansible.builtin.template:
+    src: ledger_deployment_registry_secret.yaml
+    dest: "{{ tmp_dir }}/ledger_deployment_registry_secret.yaml.{{ ansible_date_time.iso8601_basic_short }}"
+    mode: "0600"
+
+- name: Apply ledger registry secret (if needed) manifest for {{ k8s_platform }}
+  when: DEPOT_REGISTRY.BASE is defined
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    definition: "{{ lookup('template', 'templates/ledger_deployment_registry_secret.yaml') | from_yaml }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+
+- name: Render the Ledger manifest
+  ansible.builtin.set_fact:
+    ledger_manifest: "{{ lookup('template', 'templates/ledger_deployment.yaml') | from_yaml_all | select | list }}"
+  no_log: true
+
+# --- MariaDB (Ledger 1.x) -> PostgreSQL ----------------------------------------
+
+- name: Look for a MariaDB database to migrate
+  ansible.builtin.include_tasks: detect_mariadb.yml
+  when: ledger_db_internal | bool
+
+- name: Migrate the MariaDB database to PostgreSQL
+  ansible.builtin.include_tasks: migrate_internal.yml
+  when:
+    - ledger_db_internal | bool
+    - ledger_migration_needed | bool
+
+# --- Apply ---------------------------------------------------------------------
+
+- name: Remove the MCP server when LEDGER_MCP_INSTALL is false
+  kubernetes.core.k8s:
+    state: absent
+    api_version: "{{ item.api_version }}"
+    kind: "{{ item.kind }}"
+    name: "{{ item.name }}"
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  loop:
+    - {api_version: apps/v1, kind: Deployment, name: mcp}
+    - {api_version: v1, kind: Service, name: mcp}
+  loop_control:
+    label: "{{ item.kind }}/{{ item.name }}"
+  when: not (LEDGER_MCP_INSTALL | bool)
+
+# Applying the manifest never deletes what it no longer contains, so an MCP endpoint published
+# by an earlier run stays public unless it is removed here: when MCP is off, and also when it is
+# on but LEDGER_MCP_HOSTNAME has been cleared (the server then stays reachable in the cluster).
+- name: Remove the published MCP endpoint when MCP is off or has no hostname
+  kubernetes.core.k8s:
+    state: absent
+    api_version: "{{ 'route.openshift.io/v1' if k8s_platform == 'ocp' else 'networking.k8s.io/v1' }}"
+    kind: "{{ 'Route' if k8s_platform == 'ocp' else 'Ingress' }}"
+    name: "{{ 'mcp-route' if k8s_platform == 'ocp' else 'ledger-mcp-ingress' }}"
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  when: not (LEDGER_MCP_INSTALL | bool) or LEDGER_MCP_HOSTNAME | default('', true) | length == 0
+
+# Applying the manifest merges container lists by name, so a container an earlier installer
+# named differently stays next to the new one: the parser container was called "web" on every
+# platform but OCP and TKGI, and two parser processes would compete for its port. A JSON merge
+# patch replaces the whole list instead, for exactly those Deployments.
+- name: Look up the Ledger Deployments an earlier run created
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  register: ledger_live_deployments
+
+- name: Replace the containers of Deployments whose containers were renamed
+  vars:
+    ledger_live: "{{ ledger_live_deployments.resources | selectattr('metadata.name', 'equalto', item.metadata.name) | list }}"
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    definition: "{{ item }}"
+    merge_type:
+      - merge
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  loop: "{{ ledger_manifest | selectattr('kind', 'equalto', 'Deployment') | list }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+  when:
+    - ledger_live | length > 0
+    - >-
+      (ledger_live[0].spec.template.spec.containers | map(attribute='name') | sort | list)
+      != (item.spec.template.spec.containers | map(attribute='name') | sort | list)
+
+- name: "Apply ledger manifest for {{ k8s_platform }}"
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    definition: "{{ ledger_manifest }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  register: ledger_apply_result
+
+- name: Wait for the Ledger PostgreSQL StatefulSet to be ready
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: StatefulSet
+    name: postgres
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    wait: true
+    wait_sleep: 10
+    wait_timeout: 600
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  when: ledger_db_internal | bool
+
+- name: Wait for Ledger web Deployment to complete setting up
+  kubernetes.core.k8s_info:
+    kind: Deployment
+    wait: yes
+    name: web
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    wait_sleep: 10
+    wait_timeout: 600
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+
+- name: Wait for Ledger parser Service to be up
+  kubernetes.core.k8s_info:
+    kind: Service
+    wait: yes
+    name: parser
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    wait_sleep: 10
+    wait_timeout: 360
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  register: parser_svc
+
+- ansible.builtin.debug:
+    var: parser_svc.resources[0].spec.ports[0].port
+
+- name: Restart Ledger deployments to pull latest image
+  kubernetes.core.k8s:
+    state: present
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ item }}"
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    definition:
+      spec:
+        template:
+          metadata:
+            annotations:
+              kubectl.kubernetes.io/restartedAt: "{{ ansible_date_time.iso8601 }}"
+    merge_type:
+      - strategic-merge
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  # PostgreSQL is pinned by digest and is not restarted.
+  loop: "{{ ['parser', 'web', 'scheduler'] + (['mcp'] if LEDGER_MCP_INSTALL | bool else []) }}"
+  when:
+    - LEDGER_VERSION | lower == "latest"
+    - not ledger_apply_result.changed
+
+# --- Endpoints -----------------------------------------------------------------
+
+- name: Publish the Ledger hostname for {{ k8s_platform }}
+  ansible.builtin.include_tasks: "platform_{{ k8s_platform }}_dns.yml"
+  when: k8s_platform in ['aks', 'eks', 'gke']
+
+- name: Set the Ledger and Ascender URLs
+  vars:
+    ledger_https: "{{ k8s_lb_protocol == 'https' }}"
+    ledger_nodeport: "{{ k8s_platform == 'k3s' and k3s_service_type | default('ClusterIP') == 'NodePort' }}"
+  ansible.builtin.set_fact:
+    ledger_ip: "{{ LEDGER_HOSTNAME }}"
+    ledger_port: "{{ '443' if k8s_platform == 'ocp' else '30081' if ledger_nodeport | bool else '443' if ledger_https | bool else '80' }}"
+    ledger_parser_ip: "{{ parser_svc.resources[0].spec.clusterIP }}"
+    ledger_parser_port: "{{ '5000' if ledger_nodeport | bool else parser_svc.resources[0].spec.ports[0].port }}"
+    ascender_ip: "{{ LEDGER_HOSTNAME if ledger_nodeport | bool else ASCENDER_HOSTNAME }}"
+    ascender_port: "{{ '443' if k8s_platform in ['eks', 'ocp'] else '30080' if ledger_nodeport | bool else '443' if ledger_https | bool else '80' }}"
+
+# How each platform has always addressed Ledger and Ascender; kept as they were.
+- name: Build the Ledger and Ascender base URLs
+  ansible.builtin.set_fact:
+    ledger_url: >-
+      {{ ('https://' ~ ledger_ip) if k8s_platform in ['eks', 'ocp']
+         else (k8s_lb_protocol ~ '://' ~ ledger_ip) if k8s_platform in ['aks', 'gke']
+         else (k8s_lb_protocol ~ '://' ~ ledger_ip ~ ':' ~ ledger_port) }}
+    ascender_url: >-
+      {{ ('https://' ~ ascender_ip) if k8s_platform in ['eks', 'ocp']
+         else (k8s_lb_protocol ~ '://' ~ ascender_ip ~ ':' ~ ascender_port) }}
+    ascender_controller_host: >-
+      {{ ('https://' ~ ascender_ip ~ ':' ~ ascender_port) if k8s_platform == 'eks'
+         else ('https://' ~ ascender_ip) if k8s_platform == 'ocp'
+         else (k8s_lb_protocol ~ '://' ~ ascender_ip ~ ':' ~ ascender_port) }}
+
+- ansible.builtin.debug:
+    msg: "The Ledger endpoint is {{ ledger_url }}"
+
+- name: Wait until Ledger endpoint is Up
+  ansible.builtin.uri:
+    url: "{{ ledger_url }}"
+    return_content: yes
+    validate_certs: false
+    status_code:
+      - 200
+  until: uri_output.status == 200
+  retries: 200
+  delay: 10
+  register: uri_output
+
+- ansible.builtin.debug:
+    msg: "Ledger webpage is up"
+
+- name: Remove the MariaDB database of the earlier install
+  ansible.builtin.include_tasks: mariadb_cleanup.yml
+  when:
+    - ledger_db_internal | bool
+    - ledger_migration_done | default(false) | bool or ledger_migration_succeeded | default(false) | bool
+
+- name: Show how to reach the MCP server
+  ansible.builtin.debug:
+    msg: >-
+      The Ledger MCP server is reachable in the cluster at
+      http://mcp.{{ LEDGER_NAMESPACE }}.svc:{{ LEDGER_MCP_PORT }}{{
+      (' and at ' ~ ('https' if k8s_platform in ['eks', 'ocp'] else k8s_lb_protocol) ~ '://' ~ LEDGER_MCP_HOSTNAME
+       ~ '/ once ' ~ LEDGER_MCP_HOSTNAME ~ ' resolves to the cluster ingress (create that DNS record yourself)')
+      if LEDGER_MCP_HOSTNAME | default('', true) | length > 0 else '' }}.
+  when: LEDGER_MCP_INSTALL | bool
+
+# --- Ascender integration ------------------------------------------------------
+
+- ansible.builtin.debug:
+    msg: "The Ascender API endpoint is {{ ascender_url }}/api/v2/ping/"
+
+- name: Wait until Ascender API is Up
+  ansible.builtin.uri:
+    url: "{{ ascender_url }}/api/v2/ping/"
+    return_content: yes
+    validate_certs: false
+    status_code:
+      - 200
+  until: uri_output.status == 200
+  retries: 60
+  delay: 10
+  register: uri_output
+
+- ansible.builtin.debug:
+    msg: "Ascender API is up"
+
+- when: DEPOT_REGISTRY.BASE is defined and DEPOT_REGISTRY.BASE != ""
+  block:
+
+    - name: Check Ledger Token
+      ansible.builtin.uri:
+        url: "{{ ledger_url }}/api/v1/settings/"
+        user: admin
+        password: "{{ LEDGER_ADMIN_PASSWORD }}"
+        force_basic_auth: true
+        return_content: yes
+        validate_certs: false
+        status_code:
+          - 200
+      until: (ledger_settings.status | default(0)) == 200
+      retries: 60
+      delay: 10
+      register: ledger_settings
+
+    - name: Regenerate Token if blank
+      ansible.builtin.uri:
+        url: "{{ ledger_url }}/api/v1/settings/?regenerate_auth_token=1"
+        user: admin
+        password: "{{ LEDGER_ADMIN_PASSWORD }}"
+        force_basic_auth: true
+        return_content: yes
+        validate_certs: false
+        status_code:
+          - 200
+      until: (ledger_settings2.status | default(0)) == 200
+      retries: 60
+      delay: 10
+      register: ledger_settings2
+      when: ledger_settings.json.auth_token is undefined or ledger_settings.json.auth_token == ""
+
+    - name: Get Ledger Token Again (in case of regeneration)
+      ansible.builtin.uri:
+        url: "{{ ledger_url }}/api/v1/settings/"
+        user: admin
+        password: "{{ LEDGER_ADMIN_PASSWORD }}"
+        force_basic_auth: true
+        return_content: yes
+        validate_certs: false
+        status_code:
+          - 200
+      until: (ledger_settings.status | default(0)) == 200
+      retries: 60
+      delay: 10
+      register: ledger_settings
+
+    - ansible.builtin.debug:
+        var: ledger_settings.json.auth_token
+
+    - name: Enable Require Token
+      ansible.builtin.uri:
+        url: "{{ ledger_url }}/api/v1/settings/"
+        user: admin
+        password: "{{ LEDGER_ADMIN_PASSWORD }}"
+        force_basic_auth: true
+        method: POST
+        body_format: json
+        body: '{ "require_auth_token": 1, "base_url": "{{ ledger_url }}" }'
+        return_content: yes
+        validate_certs: false
+        status_code:
+          - 200
+      register: uri_output
+      until: (uri_output.status | default(0)) == 200
+      retries: 60
+      delay: 10
+      when:
+        - ledger_settings.json.auth_token is defined
+        - ledger_settings.json.require_auth_token is undefined or ledger_settings.json.require_auth_token == 0
+
+- name: Set all the logging parameters
+  ctrliq.ascender.settings:
+    controller_host: "{{ ascender_controller_host }}"
+    controller_username: "{{ ASCENDER_ADMIN_USER }}"
+    controller_password: "{{ ASCENDER_ADMIN_PASSWORD }}"
+    validate_certs: false
+    settings:
+      LOG_AGGREGATOR_HOST: "http://{{ ledger_parser_ip }}"
+      LOG_AGGREGATOR_PORT: "{{ ledger_parser_port }}"
+      LOG_AGGREGATOR_TYPE: ledger
+      LOG_AGGREGATOR_ENABLED: true
+      LOG_AGGREGATOR_VERIFY_CERT: false
+      LOG_AGGREGATOR_LEVEL: INFO
+      LOG_AGGREGATOR_PASSWORD: "{{ ledger_settings.json.auth_token | default(omit, true) }}"
+      TOWER_URL_BASE: "{{ ascender_url }}"

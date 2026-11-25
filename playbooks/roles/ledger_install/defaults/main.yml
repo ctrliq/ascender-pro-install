@@ -16,8 +16,26 @@ LEDGER_PARSER_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledge
 # The number of ledger parser pods - this is good to ensure high availability
 ledger_parser_replicas: 1
 
-# The OCI container image for the Ledger Database
+# The OCI container image for the Ledger Scheduler (advisory downloads and background jobs).
+# Always exactly one replica.
+LEDGER_SCHEDULER_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-scheduler
+
+# Whether to deploy the read-only Ledger MCP (Model Context Protocol) server, and its image
+LEDGER_MCP_INSTALL: true
+LEDGER_MCP_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-mcp
+ledger_mcp_replicas: 1
+LEDGER_MCP_PORT: 8085
+# Hostname to expose the MCP server on (Ingress, or Route on OpenShift). Empty: the MCP server is
+# only reachable inside the cluster as http://mcp.<LEDGER_NAMESPACE>:8085
+LEDGER_MCP_HOSTNAME: ""
+
+# Legacy: the MariaDB image of Ledger 1.x. Not deployed any more; kept so older configuration
+# files still load.
 LEDGER_DB_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-db
+
+# PostgreSQL image for the internal database (StatefulSet "postgres"). Pinned by digest.
+LEDGER_POSTGRES_IMAGE: "quay.io/sclorg/postgresql-18-c9s:latest@sha256:1732d0a342e2790afc100e1fe741704e5c4413dfba9a3ab3b571c26b8cb0da6f"
+LEDGER_POSTGRES_MAX_CONNECTIONS: 200
 
 # The image tag indicating the version of Ledger you wish to install
 LEDGER_VERSION: latest
@@ -28,11 +46,12 @@ LEDGER_NAMESPACE: ledger
 # Admin password for Ledger (the username is admin by default)
 LEDGER_ADMIN_PASSWORD: "myadminpassword"
 
-# Host for Ledger database
-LEDGER_DB_HOST: db
+# Host for Ledger database. "postgres" (or "db", or unset) means the internal PostgreSQL
+# StatefulSet; anything else is an external PostgreSQL server.
+LEDGER_DB_HOST: postgres
 
-# Port for Ledger database
-LEDGER_DB_PORT: "3306"
+# Port for Ledger database (always 5432 for the internal database)
+LEDGER_DB_PORT: "5432"
 
 # Name for Ledger database
 LEDGER_DB_NAME: "ledger"
@@ -43,6 +62,40 @@ LEDGER_DB_USERNAME: "ledger"
 # Password for Ledger database
 LEDGER_DB_PASSWORD: "mydbpassword"
 
+# libpq sslmode for the database connection (disable, prefer, require, verify-ca, verify-full).
+# Empty leaves Ledger's default (prefer).
+LEDGER_DB_SSLMODE: ""
+
+# Size and storage class of the internal PostgreSQL volume (PVC "postgres-data")
+LEDGER_PVC_SIZE_GB: 10
+LEDGER_PVC_STORAGE_CLASS: ""
+
+# The scheduler's advisory data volume at /app/data (PVC "ledger-data"). Only the scheduler
+# mounts it, so any storage class works. An empty storage class uses the cluster default.
+LEDGER_DATA_PVC_SIZE_GB: 10
+LEDGER_DATA_STORAGE_CLASS: ""
+# Empty: ReadWriteOnce. ReadWriteMany is accepted but not needed.
+LEDGER_DATA_ACCESS_MODE: ""
+
+# MariaDB -> PostgreSQL migration of an existing install (see docs/configuration/ledger.md)
+# Delete the old MariaDB volume (PVC "mysql-data") after a successful migration.
+LEDGER_REMOVE_MARIADB_PVC: false
+# Run the copy with --force, overwriting what the PostgreSQL database already holds.
+LEDGER_MIGRATION_FORCE: false
+# Install without migrating an old MariaDB database that is found in the namespace
+# (Ledger starts with an empty database; the old volume is left alone).
+LEDGER_SKIP_MARIADB_MIGRATION: false
+# Seconds the migration Job may run before Kubernetes stops it
+LEDGER_MIGRATION_TIMEOUT: 7200
+
 k8s_container_registry: depot.ciq.com/ascender-pro/ascender-ledger-pro-images
+
+# Ownership labels on the objects the migration creates (the namespace when it creates it, the
+# ledger-postgres-migration record, and the migration Secret, Job and pod), per the
+# organisation's labelling policy.
+LEDGER_RESOURCE_LABELS:
+  owner: ciq
+  repo: ascender-pro-install
+ledger_resource_labels: "{{ LEDGER_RESOURCE_LABELS }}"
 
 ledger_service_account_name: ledger-app

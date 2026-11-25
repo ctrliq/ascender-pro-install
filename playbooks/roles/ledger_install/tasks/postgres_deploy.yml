@@ -1,0 +1,48 @@
+# Deploys the internal PostgreSQL StatefulSet ahead of the rest of the manifest (used by the
+# migrations). PostgreSQL reads its user and database names from the db-name/db-username keys
+# of Secret db-settings. When db-settings already exists, only those keys are added: its
+# config.json keeps pointing the running install at MariaDB until the copy has succeeded.
+
+- name: Look for Secret db-settings
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: db-settings
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  register: ledger_db_settings_secret
+  no_log: true
+
+- name: Add the PostgreSQL user and database names to db-settings
+  kubernetes.core.k8s:
+    state: patched
+    api_version: v1
+    kind: Secret
+    name: db-settings
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    definition:
+      stringData:
+        db-name: "{{ LEDGER_DB_NAME }}"
+        db-username: "{{ LEDGER_DB_USERNAME }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  when: ledger_db_settings_secret.resources | length > 0
+
+- name: Deploy PostgreSQL
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    # The database and what it needs; db-settings only when it does not exist yet.
+    definition: >-
+      {{ ledger_manifest
+         | selectattr('kind', 'in', ['ServiceAccount', 'Secret', 'Service', 'PersistentVolumeClaim', 'StatefulSet'])
+         | selectattr('metadata.name', 'in', [ledger_service_account_name, 'db-ledger-password', 'postgres', 'postgres-data']
+                      + ([] if ledger_db_settings_secret.resources | length > 0 else ['db-settings']))
+         | list }}
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  no_log: true

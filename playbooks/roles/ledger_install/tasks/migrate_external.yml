@@ -1,0 +1,151 @@
+# Copies a Ledger MariaDB database that lives outside the cluster (LEDGER_MIGRATE_SOURCE_DB_*)
+# into the PostgreSQL database Ledger is configured for (LEDGER_DB_*: an external server, or
+# the internal StatefulSet). Used by playbooks/migrate_ledger_external_db.yml.
+
+- name: Check the source database settings
+  ansible.builtin.assert:
+    that:
+      - LEDGER_MIGRATE_SOURCE_DB_HOST | default('', true) | length > 0
+      - LEDGER_MIGRATE_SOURCE_DB_NAME | default('', true) | length > 0
+      - LEDGER_MIGRATE_SOURCE_DB_USERNAME | default('', true) | length > 0
+      - LEDGER_MIGRATE_SOURCE_DB_PASSWORD is defined
+    fail_msg: >-
+      Set LEDGER_MIGRATE_SOURCE_DB_HOST, LEDGER_MIGRATE_SOURCE_DB_NAME,
+      LEDGER_MIGRATE_SOURCE_DB_USERNAME and LEDGER_MIGRATE_SOURCE_DB_PASSWORD (and
+      LEDGER_MIGRATE_SOURCE_DB_PORT if it is not 3306) to the MariaDB database to copy, in
+      custom.config.yml or with -e.
+    quiet: true
+
+- name: Run the platform-specific preparation for {{ k8s_platform }}
+  ansible.builtin.include_tasks: "platform_{{ k8s_platform }}_pre.yml"
+  when: k8s_platform in ['ocp', 'tkgi']
+
+- name: Settle the Ledger variables
+  ansible.builtin.include_tasks: prepare.yml
+
+# The manifest is rendered whole, but this path applies only the database objects
+# (postgres_deploy.yml), never the EKS Ingress that needs an ACM certificate. A placeholder keeps
+# the render from failing without making the migration look certificates up in AWS; the install
+# that follows runs platform_eks_pre.yml as usual.
+- name: Use a placeholder certificate for rendering on EKS
+  ansible.builtin.set_fact:
+    certificate: {certificate_arn: ""}
+  when:
+    - k8s_platform == 'eks'
+    - certificate is not defined or certificate.certificate_arn is not defined
+
+# As in main.yml: on an offline k3s cluster the PostgreSQL and migration (ledger-web) images
+# come from the bundle and are pulled with imagePullPolicy Never.
+- name: Import images
+  ansible.builtin.shell:
+    cmd: k3s ctr images import {{ item }}
+  with_fileglob:
+    - "{{ playbook_dir }}/../offline/images/ledger*.tar"
+  when:
+    - k8s_platform == 'k3s'
+    - k8s_offline | bool
+
+- name: Set the migration source
+  ansible.builtin.set_fact:
+    ledger_migration_source:
+      host: "{{ LEDGER_MIGRATE_SOURCE_DB_HOST }}"
+      port: "{{ LEDGER_MIGRATE_SOURCE_DB_PORT | default('3306', true) | string }}"
+      name: "{{ LEDGER_MIGRATE_SOURCE_DB_NAME }}"
+      username: "{{ LEDGER_MIGRATE_SOURCE_DB_USERNAME }}"
+      password: "{{ LEDGER_MIGRATE_SOURCE_DB_PASSWORD }}"
+    ledger_migration_force: "{{ LEDGER_MIGRATION_FORCE | bool }}"
+  no_log: true
+
+- name: Warn that a new database password changes Ledger's encryption keys
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: LEDGER_DB_PASSWORD differs from LEDGER_MIGRATE_SOURCE_DB_PASSWORD. Ledger derives
+      the keys that encrypt stored secrets (SMTP, LDAP and SSO passwords, ...) from its database
+      password, so after the move those settings cannot be decrypted and must be entered again.
+      Give the PostgreSQL user the same password as the MariaDB user to avoid this.
+  when: LEDGER_DB_PASSWORD != LEDGER_MIGRATE_SOURCE_DB_PASSWORD
+
+- name: Create Namespace
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ LEDGER_NAMESPACE }}"
+        labels: "{{ ledger_resource_labels }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+
+- name: Apply the Ledger registry secret
+  when: DEPOT_REGISTRY.BASE is defined
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    definition: "{{ lookup('template', 'templates/ledger_deployment_registry_secret.yaml') | from_yaml }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+
+- name: Render the Ledger manifest
+  ansible.builtin.set_fact:
+    ledger_manifest: "{{ lookup('template', 'templates/ledger_deployment.yaml') | from_yaml_all | select | list }}"
+  no_log: true
+
+- name: Apply the service account and, for the internal database, PostgreSQL
+  ansible.builtin.include_tasks: postgres_deploy.yml
+
+- name: Check what the internal PostgreSQL database holds
+  ansible.builtin.include_tasks: postgres_populated.yml
+  when: ledger_db_internal | bool
+
+- name: Stop instead of overwriting data in PostgreSQL
+  ansible.builtin.fail:
+    msg: >-
+      The internal PostgreSQL database already holds tables. To overwrite them with the MariaDB
+      data, set LEDGER_MIGRATION_FORCE: true and run this playbook again.
+  when:
+    - ledger_db_internal | bool
+    - ledger_postgres_populated | bool
+    - not (ledger_migration_force | bool)
+
+- name: Look for Ledger Deployments to stop
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ item }}"
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  loop: [web, parser, scheduler, mcp]
+  register: ledger_app_deployments
+
+- name: Stop Ledger in this namespace so nothing writes to the target during the copy
+  kubernetes.core.k8s_scale:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ item.item }}"
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    replicas: 0
+    wait: true
+    wait_timeout: 300
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  loop: "{{ ledger_app_deployments.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.resources | length > 0
+
+- name: Copy MariaDB into PostgreSQL
+  ansible.builtin.include_tasks: migration_job.yml
+
+- ansible.builtin.debug:
+    msg: >-
+      The data is in {{ LEDGER_DB_NAME }} on {{ LEDGER_DB_HOST }}:{{ LEDGER_DB_PORT }}. Stop any
+      Ledger that still writes to the MariaDB database, then run playbooks/install_ledger.yml (or
+      setup.sh) with these LEDGER_DB_* settings to deploy Ledger on PostgreSQL.
+      {{ 'The web/parser/scheduler/MCP Deployments in ' ~ LEDGER_NAMESPACE ~ ' were scaled to 0 and come back with that install.'
+         if ledger_app_deployments.results | selectattr('resources') | list | length > 0 else '' }}

@@ -18,9 +18,20 @@
         path: "{{ LEDGER_PARSER_IMAGE | default('depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-parser') }}"
         tag: "{{ LEDGER_VERSION | default('latest') }}"
         type: ledger
-      - name: ledger-db
-        path: "{{ LEDGER_DB_IMAGE | default('depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-db') }}"
+      - name: ledger-scheduler
+        path: "{{ LEDGER_SCHEDULER_IMAGE | default('depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-scheduler') }}"
         tag: "{{ LEDGER_VERSION | default('latest') }}"
+        type: ledger
+      - name: ledger-mcp
+        path: "{{ LEDGER_MCP_IMAGE | default('depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-mcp') }}"
+        tag: "{{ LEDGER_VERSION | default('latest') }}"
+        type: ledger
+      # Ledger's internal PostgreSQL. The name starts with "ledger" so the k3s offline install
+      # imports it with the other ledger*.tar archives. The bundle holds the tag; the digest
+      # pin in LEDGER_POSTGRES_IMAGE is dropped for offline and internal-registry installs.
+      - name: ledger-postgres
+        path: "{{ (LEDGER_POSTGRES_IMAGE | default('quay.io/sclorg/postgresql-18-c9s:latest')) | regex_replace('@.*$', '') | regex_replace(':[^/:]+$', '') }}"
+        tag: "{{ ((LEDGER_POSTGRES_IMAGE | default('quay.io/sclorg/postgresql-18-c9s:latest')) | regex_replace('@.*$', '') | regex_search(':[^/:]+$') or ':latest')[1:] }}"
         type: ledger
       - name: ascender-operator
         path: ghcr.io/ctrliq/ascender-operator

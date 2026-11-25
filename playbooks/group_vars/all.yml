@@ -262,8 +262,9 @@ LEDGER_PARSER_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledge
 # The number of ledger parser pods - this is good to ensure high availability
 ledger_parser_replicas: 1
 
-# The OCI container image for the Ledger Database
-LEDGER_DB_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-db
+# The OCI container images for the Ledger Scheduler and the optional MCP server
+LEDGER_SCHEDULER_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-scheduler
+LEDGER_MCP_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-mcp
 
 # The image tag indicating the version of Ledger you wish to install
 LEDGER_VERSION: latest
@@ -277,8 +278,8 @@ LEDGER_ADMIN_PASSWORD: "myadminpassword"
 # Password for Ledger database
 LEDGER_DB_PASSWORD: "mydbpassword"
 
-# # Used to increase the default size of the MariaDB Storage PVC.
-# # !!! Do not set or change this for an existing install !!!
+# # Size in GB of Ledger's internal PostgreSQL volume (PVC postgres-data).
+# # Only grow it, and only with a storage class that supports volume expansion.
 LEDGER_PVC_SIZE_GB: 10
 
     # Whether to install the Ascender Galaxy Proxy

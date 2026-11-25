@@ -112,6 +112,7 @@ The following variables will be present after running the script:
 - `tls_crt_path`: TLS Certificate file location on the local installing machine
 - `tls_key_path`: TLS Private Key file location on the local installing machine
 - `GOOGLE_DNS_MANAGED_ZONE`: In Google Cloud DNS the name of an existing hosted DNS zone for your DNS record.
+- `LEDGER_DATA_STORAGE_CLASS`: Optional storage class for the Ledger scheduler's data volume; the cluster default is fine. See [the Ledger guide](../../configuration/ledger.md#scheduler-data-volume).
 
 ### Run the setup script
 
@@ -145,7 +146,7 @@ The username is and the corresponding password is stored in `<repository root>`/
 After running `setup.sh`, `tmp_dir` will contain timestamped kubernetes manifests for:
 
 - `ascender-deployment-{{ k8s_platform }}.yml`
-- `ledger-{{ k8s_platform }}.yml` (if you installed Ledger)
+- `ledger_deployment_{{ k8s_platform }}.yaml` (if you installed Ledger)
 - `kustomization.yml`
 
 It will also contain a directory called `gke-deploy`, if you provisioned a new GKE cluster with the Ascender installer. This directory will contain the terraform state files and artifacts for your GKE cluster.
@@ -155,7 +156,7 @@ commands from within `tmp_dir``:
 
 - `$ kubectl delete -f ascender-deployment-{{ k8s_platform }}.yml`
 - `$ kubectl delete pvc -n {{ ASCENDER_NAMESPACE }} postgres-15-ascender-app-postgres-15-0 (If you used the default postgres database)
-- `$ kubectl delete -f ledger-{{ k8s_platform }}.yml`
+- `$ kubectl delete -f ledger_deployment_{{ k8s_platform }}.yaml`
 - `$ kubectl delete -k .`
 
 To delete an GKE cluster created with the Ascender installer, run the following command from within the `tmp_dir`

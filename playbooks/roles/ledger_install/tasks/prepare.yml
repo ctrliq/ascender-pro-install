@@ -1,0 +1,117 @@
+# Settles the Ledger variables every later step relies on. Used by the install
+# (main.yml) and by playbooks/migrate_ledger_external_db.yml.
+
+- name: Retrieve the current time in order to timestamp files
+  ansible.builtin.setup:
+    gather_subset:
+     - date_time
+
+- name: Make sure the directory for timestamped manifests and backups exists
+  ansible.builtin.file:
+    path: "{{ tmp_dir }}"
+    state: directory
+    mode: "0700"
+
+# --- Database location ------------------------------------------------------
+
+- name: Work out whether Ledger uses the internal PostgreSQL database
+  ansible.builtin.set_fact:
+    ledger_db_internal: "{{ (LEDGER_DB_HOST | default('', true) | string | trim) in ['', 'db', 'postgres'] }}"
+    ledger_db_port_configured: "{{ LEDGER_DB_PORT | default('', true) | string | trim }}"
+
+- name: Warn that the configured port is replaced for the internal database
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: LEDGER_DB_PORT is "{{ ledger_db_port_configured }}" in your configuration, but the
+      internal Ledger database is now PostgreSQL on port 5432. Using 5432; remove LEDGER_DB_PORT
+      (and LEDGER_DB_HOST) from custom.config.yml to silence this warning.
+  when:
+    - ledger_db_internal | bool
+    - ledger_db_port_configured not in ['', '5432']
+
+- name: Point Ledger at the internal PostgreSQL Service
+  ansible.builtin.set_fact:
+    LEDGER_DB_HOST: postgres
+    LEDGER_DB_PORT: "5432"
+  when: ledger_db_internal | bool
+
+- name: Refuse an external MariaDB/MySQL database
+  ansible.builtin.fail:
+    msg: >-
+      LEDGER_DB_HOST is the external server {{ LEDGER_DB_HOST }} on port 3306 (MariaDB/MySQL).
+      This version of Ledger runs on PostgreSQL only. Create a PostgreSQL 18 database and user
+      for Ledger, set LEDGER_DB_HOST/LEDGER_DB_PORT/LEDGER_DB_NAME/LEDGER_DB_USERNAME/LEDGER_DB_PASSWORD
+      to it, and copy the data with playbooks/migrate_ledger_external_db.yml (see
+      docs/configuration/ledger.md) before installing.
+  when:
+    - not (ledger_db_internal | bool)
+    - (LEDGER_DB_PORT | string | trim) == '3306'
+
+# MCP clients send Ledger credentials with every request. Published over plain HTTP, they cross
+# the network unencrypted, as the Ledger UI's own login does on such an install.
+- name: Warn that the published MCP endpoint is plain HTTP
+  ansible.builtin.debug:
+    msg: >-
+      WARNING: LEDGER_MCP_HOSTNAME publishes the MCP server with k8s_lb_protocol: http. MCP
+      clients send Ledger credentials with every request, so they cross the network
+      unencrypted. Use k8s_lb_protocol: https, or leave LEDGER_MCP_HOSTNAME empty and reach the
+      server inside the cluster.
+  when:
+    - LEDGER_MCP_INSTALL | default(true) | bool
+    - LEDGER_MCP_HOSTNAME | default('', true) | length > 0
+    - k8s_lb_protocol | default('http') == 'http'
+    - k8s_platform not in ['eks', 'ocp']
+
+# --- Scheduler data volume -----------------------------------------------------
+
+# Only the scheduler mounts ledger-data (the web pods reach the advisory data through the
+# scheduler's internal API), and there is exactly one scheduler, so ReadWriteOnce works on every
+# platform's default storage class. ReadWriteMany is accepted for clusters that prefer it.
+- name: Work out the access mode of the ledger-data volume
+  ansible.builtin.set_fact:
+    ledger_data_access_mode: "{{ LEDGER_DATA_ACCESS_MODE | default('', true) or 'ReadWriteOnce' }}"
+
+- name: Check LEDGER_DATA_ACCESS_MODE
+  ansible.builtin.assert:
+    that:
+      - ledger_data_access_mode in ['ReadWriteMany', 'ReadWriteOnce']
+    fail_msg: "LEDGER_DATA_ACCESS_MODE must be ReadWriteOnce or ReadWriteMany, not {{ ledger_data_access_mode }}"
+    quiet: true
+
+- name: Look up the configured storage classes
+  kubernetes.core.k8s_info:
+    api_version: storage.k8s.io/v1
+    kind: StorageClass
+    name: "{{ item }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  register: ledger_storage_classes
+  loop: >-
+    {{ ([LEDGER_DATA_STORAGE_CLASS | default('', true)]
+        + ([LEDGER_PVC_STORAGE_CLASS | default('', true)] if ledger_db_internal | bool else []))
+       | select | unique | list }}
+
+- name: Fail on a storage class that does not exist
+  ansible.builtin.fail:
+    msg: "Storage class {{ item.item }} does not exist in the cluster (check LEDGER_DATA_STORAGE_CLASS / LEDGER_PVC_STORAGE_CLASS)."
+  loop: "{{ ledger_storage_classes.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item | default('') }}"
+  when:
+    - item.resources is defined
+    - item.resources | length == 0
+
+# --- Images -------------------------------------------------------------------
+
+- name: Work out the PostgreSQL image
+  vars:
+    ledger_postgres_image_repo: "{{ LEDGER_POSTGRES_IMAGE.split('@')[0] }}"
+  ansible.builtin.set_fact:
+    # An internal registry (k8s_container_registry) holds the image under its base name, as
+    # create_bundle.yml pushes it. Images imported offline into k3s have no registry digest.
+    ledger_postgres_image: >-
+      {{ (k8s_container_registry | regex_replace('/$', '') ~ '/' ~ (ledger_postgres_image_repo | basename))
+           if (k8s_container_registry and k8s_container_registry != 'depot.ciq.com/ascender-pro/ascender-ledger-pro-images')
+         else (ledger_postgres_image_repo if (k8s_platform == 'k3s' and k8s_offline | default(false) | bool)
+         else LEDGER_POSTGRES_IMAGE) }}

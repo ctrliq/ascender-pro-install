@@ -1,0 +1,36 @@
+# TKGI: every Kubernetes call goes to an explicit kubeconfig and context
+# (ledger_kubeconfig / ledger_k8s_context are passed by all ledger_install tasks).
+
+- name: Set kubeconfig path for tkgi platform
+  ansible.builtin.set_fact:
+    kubeconfig_path: "{{ TKGI_KUBECONFIG_PATH | default(lookup('env', 'KUBECONFIG'), true) | default(lookup('env', 'HOME') + '/.kube/config', true) }}"
+
+- name: Expand tilde in kubeconfig path
+  ansible.builtin.set_fact:
+    kubeconfig_path: "{{ kubeconfig_path | regex_replace('^~', lookup('env', 'HOME')) }}"
+
+- name: Get current kubeconfig context for tkgi platform
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - config
+      - current-context
+      - --kubeconfig={{ kubeconfig_path }}
+  register: current_context
+  changed_when: false
+
+- name: Set kubeconfig context for tkgi platform
+  ansible.builtin.set_fact:
+    tkgi_k8s_context: "{{ TKGI_K8S_CONTEXT | default(current_context.stdout, true) }}"
+    ledger_k8s_context: "{{ TKGI_K8S_CONTEXT | default(current_context.stdout, true) }}"
+    ledger_kubeconfig: "{{ kubeconfig_path }}"
+
+- name: Create Namespace
+  kubernetes.core.k8s:
+    name: "{{ LEDGER_NAMESPACE }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+    context: "{{ ledger_k8s_context }}"
+    kubeconfig: "{{ ledger_kubeconfig }}"
+    verify_ssl: false

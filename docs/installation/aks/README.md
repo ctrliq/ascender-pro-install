@@ -125,6 +125,7 @@ The following variables will be present after running the script:
 - `USE_AZURE_DNS`: Determines whether to use Route53's Domain Management, or a third-party service such as Cloudflare, or GoDaddy. If this value is set to false, you will have to manually set a CNAME record for `ASCENDER_HOSTNAME` and `LEDGER_HOSTNAME` to point to the AWS Loadbalancers that the installer creates.
 - `ASCENDER_HOSTNAME`: The DNS resolvable hostname for Ascender service.
 - `LEDGER_HOSTNAME`: The DNS resolvable hostname for Ascender service.
+- `LEDGER_DATA_STORAGE_CLASS`: Optional storage class for the Ledger scheduler's data volume; the cluster default is fine. See [the Ledger guide](../../configuration/ledger.md#scheduler-data-volume).
 - `ASCENDER_DOMAIN`: The Hosted Zone/Domain for all Ascender components. 
   - this is a SINGLE domain for both Ascender AND Ledger.
 - `USE_AZURE_DNS`: Determines whether to use Azure DNS Domain Management, or a third-party service such as Cloudflare, or GoDaddy. If this value is set to false, you will have to manually set a CNAME record for `ASCENDER_HOSTNAME` and `LEDGER_HOSTNAME` to point to the AWS Loadbalancers that the installer creates.
@@ -169,7 +170,7 @@ The username is and the corresponding password is stored in `<repository root>`/
 After running `setup.sh`, `tmp_dir` will contain timestamped kubernetes manifests for:
 
 - `ascender-deployment-{{ k8s_platform }}.yml`
-- `ledger-{{ k8s_platform }}.yml` (if you installed Ledger)
+- `ledger_deployment_{{ k8s_platform }}.yaml` (if you installed Ledger)
 - `kustomization.yml`
 
 It will also contain a directory called `aks-deploy`, if you provisioned a new AKS cluster with the Ascender installer. This directory will contain the terraform state files and artifacts for your AKS cluster.
@@ -179,7 +180,7 @@ commands from within `tmp_dir``:
 
 - `$ kubectl delete -f ascender-deployment-{{ k8s_platform }}.yml`
 - `$ kubectl delete pvc -n {{ ASCENDER_NAMESPACE }} postgres-15-ascender-app-postgres-15-0 (If you used the default postgres database)
-- `$ kubectl delete -f ledger-{{ k8s_platform }}.yml`
+- `$ kubectl delete -f ledger_deployment_{{ k8s_platform }}.yaml`
 - `$ kubectl delete -k .`
 
 To delete an AKS cluster created with the Ascender installer, run the following command from within the `tmp_dir`

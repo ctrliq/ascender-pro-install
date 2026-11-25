@@ -21,6 +21,58 @@
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'LEDGER_HOSTNAME': ledger_hostname_value}, recursive=True) }}"
 
+    - name: "Storage class for the Ledger scheduler's data volume (blank: cluster default)"
+      prompt:
+        prompt: "Enter your selection [{{ config_data.LEDGER_DATA_STORAGE_CLASS | default('', true) }}]: "
+      register: config_vars_ledger_data_storage_class
+      when: CONFIG_ADVANCED | bool
+
+    - name: Save the Ledger data storage class
+      vars:
+        ledger_data_sc_default: "{{ config_data.LEDGER_DATA_STORAGE_CLASS | default('', true) }}"
+        ledger_data_sc_value: "{{ config_vars_ledger_data_storage_class.user_input | default('', true) | trim | default(ledger_data_sc_default, true) }}"
+      ansible.builtin.set_fact:
+        config_data: "{{ config_data | combine({'LEDGER_DATA_STORAGE_CLASS': ledger_data_sc_value}, recursive=True) }}"
+      when: CONFIG_ADVANCED | bool
+
+    - name: "Size in GB of the Ledger data volume"
+      prompt:
+        prompt: "Enter your selection [{{ config_data.LEDGER_DATA_PVC_SIZE_GB | default(10) }}]: "
+      register: config_vars_ledger_data_pvc_size
+      when: CONFIG_ADVANCED | bool
+
+    - name: Save the Ledger data volume size
+      vars:
+        ledger_data_pvc_size_default: "{{ config_data.LEDGER_DATA_PVC_SIZE_GB | default(10) }}"
+        ledger_data_pvc_size_value: "{{ config_vars_ledger_data_pvc_size.user_input | trim | default(ledger_data_pvc_size_default, true) | int }}"
+      ansible.builtin.set_fact:
+        config_data: "{{ config_data | combine({'LEDGER_DATA_PVC_SIZE_GB': ledger_data_pvc_size_value}, recursive=True) }}"
+      when: CONFIG_ADVANCED | bool
+
+    - name: Prompt whether to install the Ledger MCP server
+      ansible.builtin.include_tasks: menu_choice.yml
+      vars:
+        config_vars_menu_prompt: "Whether to install the read-only Ledger MCP server (for AI assistants):"
+        config_vars_menu_options_display: "{{ config_vars_boolean_options_display }}"
+        config_vars_menu_options_value: "{{ config_vars_boolean_options_value }}"
+        config_vars_menu_target: LEDGER_MCP_INSTALL
+        config_vars_menu_default_display: "{{ config_data.LEDGER_MCP_INSTALL | default(true) | bool | ternary('true', 'false') }}"
+        config_vars_menu_default_value: "{{ config_data.LEDGER_MCP_INSTALL | default(true) | bool }}"
+
+    - name: "Hostname to publish the Ledger MCP server on (blank: in-cluster only; '-' clears a saved value)"
+      prompt:
+        prompt: "Enter your selection [{{ config_data.LEDGER_MCP_HOSTNAME | default('', true) }}]: "
+      register: config_vars_ledger_mcp_hostname
+      when: config_data.LEDGER_MCP_INSTALL | default(true) | bool
+
+    - name: Save the Ledger MCP hostname
+      vars:
+        ledger_mcp_hostname_default: "{{ config_data.LEDGER_MCP_HOSTNAME | default('', true) }}"
+        ledger_mcp_hostname_input: "{{ config_vars_ledger_mcp_hostname.user_input | default('', true) | trim | default(ledger_mcp_hostname_default, true) }}"
+      ansible.builtin.set_fact:
+        config_data: "{{ config_data | combine({'LEDGER_MCP_HOSTNAME': '' if ledger_mcp_hostname_input == '-' else ledger_mcp_hostname_input}, recursive=True) }}"
+      when: config_data.LEDGER_MCP_INSTALL | default(true) | bool
+
     - name: "Number of replicas for the Ledger web container"
       prompt:
         prompt: "Enter your selection [{{ config_data.ledger_web_replicas | default(1) }}]: "

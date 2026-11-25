@@ -134,8 +134,9 @@ LEDGER_PARSER_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledge
 # The number of ledger parser pods - this is good to ensure high availability
 ledger_parser_replicas: 1
 
-# The OCI container image for the Ledger Database
-LEDGER_DB_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-db
+# The OCI container images for the Ledger Scheduler and the optional MCP server
+LEDGER_SCHEDULER_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-scheduler
+LEDGER_MCP_IMAGE: depot.ciq.com/ascender-pro/ascender-ledger-pro-images/ledger-mcp
 
 # The image tag indicating the version of Ledger you wish to install
 LEDGER_VERSION: latest

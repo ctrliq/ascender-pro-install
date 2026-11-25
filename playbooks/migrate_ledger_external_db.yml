@@ -1,0 +1,40 @@
+# Copyright (c) 2026, Ctrl IQ, Inc. All rights reserved.
+#
+# Copies a Ledger MariaDB database that is NOT managed by this installer (an external
+# MariaDB/MySQL server) into PostgreSQL, with `ledger-web migrate-from-mariadb` run as a
+# Kubernetes Job in LEDGER_NAMESPACE.
+#
+#   Source (MariaDB):  LEDGER_MIGRATE_SOURCE_DB_HOST, LEDGER_MIGRATE_SOURCE_DB_PORT (3306),
+#                      LEDGER_MIGRATE_SOURCE_DB_NAME, LEDGER_MIGRATE_SOURCE_DB_USERNAME,
+#                      LEDGER_MIGRATE_SOURCE_DB_PASSWORD
+#   Target (PostgreSQL): the usual LEDGER_DB_HOST, LEDGER_DB_PORT, LEDGER_DB_NAME,
+#                      LEDGER_DB_USERNAME, LEDGER_DB_PASSWORD (and LEDGER_DB_SSLMODE).
+#                      Leave LEDGER_DB_HOST unset to target the internal PostgreSQL StatefulSet.
+#
+# The Job must be able to reach both servers. The target database must exist, be owned by
+# LEDGER_DB_USERNAME and be empty (or set LEDGER_MIGRATION_FORCE: true). Back up the source
+# first: the migration upgrades its schema in place.
+#
+#   ansible-playbook playbooks/migrate_ledger_external_db.yml
+#
+# See docs/configuration/ledger.md, which also shows the same migration as a one-off
+# `podman run` for hosts that cannot reach the cluster.
+
+- hosts: localhost
+  become: false
+  gather_facts: no
+
+  vars_files:
+    - ["../custom.config.yml", "../default.config.yml"]
+
+  environment:
+    K8S_AUTH_KUBECONFIG: "{{ lookup('env', 'HOME') }}/.kube/config"
+    NAMESPACE: "{{ LEDGER_NAMESPACE }}"
+    PATH: "/usr/local/bin:{{ lookup('env', 'PATH') }}"
+
+  tasks:
+
+    - name: Migrate the external Ledger MariaDB database to PostgreSQL
+      ansible.builtin.include_role:
+        name: ledger_install
+        tasks_from: migrate_external
