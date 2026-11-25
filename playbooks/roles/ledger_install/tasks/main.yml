@@ -93,6 +93,41 @@
     verify_ssl: false
   when: not (LEDGER_MCP_INSTALL | bool) or LEDGER_MCP_HOSTNAME | default('', true) | length == 0
 
+# Applying the manifest merges container lists by name, so a container an earlier installer
+# named differently stays next to the new one: the parser container was called "web" on every
+# platform but OCP and TKGI, and two parser processes would compete for its port. A JSON merge
+# patch replaces the whole list instead, for exactly those Deployments.
+- name: Look up the Ledger Deployments an earlier run created
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  register: ledger_live_deployments
+
+- name: Replace the containers of Deployments whose containers were renamed
+  vars:
+    ledger_live: "{{ ledger_live_deployments.resources | selectattr('metadata.name', 'equalto', item.metadata.name) | list }}"
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    definition: "{{ item }}"
+    merge_type:
+      - merge
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  loop: "{{ ledger_manifest | selectattr('kind', 'equalto', 'Deployment') | list }}"
+  loop_control:
+    label: "{{ item.metadata.name }}"
+  when:
+    - ledger_live | length > 0
+    - >-
+      (ledger_live[0].spec.template.spec.containers | map(attribute='name') | sort | list)
+      != (item.spec.template.spec.containers | map(attribute='name') | sort | list)
+
 - name: "Apply ledger manifest for {{ k8s_platform }}"
   kubernetes.core.k8s:
     state: present

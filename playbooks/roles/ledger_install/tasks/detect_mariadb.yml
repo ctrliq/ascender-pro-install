@@ -11,7 +11,9 @@
 # Progress is recorded in the ConfigMap ledger-postgres-migration (data.phase: started,
 # failed, completed or skipped; data.copied: whether a migration Job made the copy;
 # data.target and data.target_volume_uid: the PostgreSQL database and volume a completed copy
-# went into), so a re-run picks up where the last one stopped.
+# went into; data.copy_target and data.copy_target_volume_uid: the database and volume a
+# migration Job was started on, written only after the target was found empty), so a re-run
+# picks up where the last one stopped.
 
 - name: Look for the MariaDB Deployment of an earlier Ledger install
   kubernetes.core.k8s_info:
@@ -114,6 +116,22 @@
   ansible.builtin.set_fact:
     ledger_migration_phase: "{{ '' if ledger_migration_record_stale | bool else (ledger_migration_record_data.phase | default('')) }}"
 
+# An unfinished attempt only proves that the tables in PostgreSQL are its own partial copy if a
+# migration Job was started on this very database and volume (after the target was found empty).
+# Only then may a re-run overwrite them without LEDGER_MIGRATION_FORCE.
+- name: Check whether an unfinished copy went into this PostgreSQL database
+  vars:
+    ledger_copy_target: "{{ ledger_migration_record_data.copy_target | default('') }}"
+    ledger_copy_volume: "{{ ledger_migration_record_data.copy_target_volume_uid | default('') }}"
+    ledger_current_volume: "{{ (ledger_postgres_pvc.resources | first | default({})).metadata.uid | default('') }}"
+  ansible.builtin.set_fact:
+    ledger_migration_resumable: >-
+      {{ ledger_migration_phase in ['started', 'failed']
+         and ledger_copy_target | length > 0
+         and ledger_copy_target == (LEDGER_DB_HOST ~ ':' ~ LEDGER_DB_PORT ~ '/' ~ LEDGER_DB_NAME)
+         and (not (ledger_db_internal | bool)
+              or (ledger_copy_volume | length > 0 and ledger_copy_volume == ledger_current_volume)) }}
+
 - name: Report a migration record that no longer matches the database
   ansible.builtin.debug:
     msg: >-
@@ -162,10 +180,11 @@
       {{ ledger_mariadb_found | bool
          and ledger_migration_phase != 'completed'
          and not (LEDGER_SKIP_MARIADB_MIGRATION | bool) }}
-    # An earlier attempt that did not finish leaves its partial copy behind: overwrite it.
+    # An earlier attempt whose Job ran on this database leaves its partial copy behind:
+    # overwrite it. Tables the record cannot account for are never overwritten unasked.
     ledger_migration_force: >-
       {{ LEDGER_MIGRATION_FORCE | bool
-         or (ledger_migration_phase in ['started', 'failed'] and ledger_postgres_populated | bool) }}
+         or (ledger_migration_resumable | bool and ledger_postgres_populated | bool) }}
     ledger_migration_done: "{{ ledger_migration_phase == 'completed' }}"
     # Only a copy a migration Job made proves the MariaDB data is in PostgreSQL. Records written
     # before data.copied existed came from the Job, the only path that wrote "completed" then.
@@ -189,20 +208,22 @@
 
 # Tables in PostgreSQL with no record of how they got there prove nothing: they may be an empty
 # or unrelated schema, or a copy made by hand. Neither copying over them nor treating them as the
-# migrated data is safe without the operator's word.
+# migrated data is safe without the operator's word. That includes an unfinished attempt that
+# stopped before its Job ran, or whose Job ran on another database or volume.
 - name: Stop when PostgreSQL holds data that no recorded migration put there
   ansible.builtin.fail:
     msg: >-
-      PostgreSQL already holds tables, but there is no record of a migration into it, so the
-      installer cannot tell whether they are the MariaDB data. Nothing has been changed. Either
+      PostgreSQL already holds tables, but there is no record of a migration copy into this
+      database, so the installer cannot tell whether they are the MariaDB data. Nothing has been
+      changed. Either
       set LEDGER_MIGRATION_FORCE: true to replace them with a fresh copy of the MariaDB
       database, or set LEDGER_SKIP_MARIADB_MIGRATION: true to keep them and leave MariaDB (and
       its volume) in place.
   when:
     - ledger_migration_needed | bool
-    - ledger_migration_phase == ''
+    - ledger_migration_phase in ['', 'started', 'failed']
     - ledger_postgres_populated | bool
-    - not (LEDGER_MIGRATION_FORCE | bool)
+    - not (ledger_migration_force | bool)
 
 - name: Stop when a skipped migration is turned back on over Ledger's own data
   ansible.builtin.fail:

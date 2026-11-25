@@ -71,6 +71,9 @@
         source_db_name: "{{ ledger_mariadb_source.name }}"
         source_db_username: "{{ ledger_mariadb_source.username }}"
         mariadb_backup_pre_migration: "{{ ledger_migration_record_data.mariadb_backup_pre_migration | default('') }}"
+        # Where an earlier Job of this migration copied to: its partial copy is still there.
+        copy_target: "{{ ledger_migration_record_data.copy_target | default('') if ledger_migration_phase in ['started', 'failed'] else '' }}"
+        copy_target_volume_uid: "{{ ledger_migration_record_data.copy_target_volume_uid | default('') if ledger_migration_phase in ['started', 'failed'] else '' }}"
     context: "{{ ledger_k8s_context | default(omit) }}"
     kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
     verify_ssl: false
@@ -240,11 +243,40 @@
   ansible.builtin.fail:
     msg: >-
       The PostgreSQL database already holds tables, and there is no record of an unfinished
-      migration that put them there. To overwrite them with the MariaDB data, set
+      migration copy into this database that put them there. To overwrite them with the MariaDB data, set
       LEDGER_MIGRATION_FORCE: true and run the installer again.
   when:
     - ledger_postgres_populated | bool
     - not (ledger_migration_force | bool)
+
+# The checkpoint that lets a re-run overwrite what this Job leaves behind (detect_mariadb.yml).
+# Written only now that the target is known to be empty, or LEDGER_MIGRATION_FORCE (or an
+# earlier checkpoint for this same database and volume) allows replacing it.
+- name: Look up the PostgreSQL volume the copy goes into
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: postgres-data
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
+  register: ledger_copy_target_pvc
+
+- name: Record which database the copy goes into
+  kubernetes.core.k8s:
+    state: patched
+    api_version: v1
+    kind: ConfigMap
+    name: ledger-postgres-migration
+    namespace: "{{ LEDGER_NAMESPACE }}"
+    definition:
+      data:
+        copy_target: "{{ LEDGER_DB_HOST }}:{{ LEDGER_DB_PORT }}/{{ LEDGER_DB_NAME }}"
+        copy_target_volume_uid: "{{ (ledger_copy_target_pvc.resources | first | default({})).metadata.uid | default('') }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
+    verify_ssl: false
 
 - name: Copy MariaDB into PostgreSQL
   ansible.builtin.include_tasks: migration_job.yml

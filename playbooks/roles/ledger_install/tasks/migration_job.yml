@@ -133,6 +133,9 @@
           {{ (ledger_mariadb_backup_original | default('')) or (ledger_mariadb_backup_local | default('')) }}
         source_db_name: "{{ ledger_migration_source.name }}"
         source_db_username: "{{ ledger_migration_source.username }}"
+        # After a failed Job, the partial copy that a re-run may overwrite (detect_mariadb.yml).
+        copy_target: "{{ LEDGER_DB_HOST }}:{{ LEDGER_DB_PORT }}/{{ LEDGER_DB_NAME }}"
+        copy_target_volume_uid: "{{ (ledger_migration_target_pvc.resources | default([]) | first | default({})).metadata.uid | default('') }}"
     context: "{{ ledger_k8s_context | default(omit) }}"
     kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
     verify_ssl: false

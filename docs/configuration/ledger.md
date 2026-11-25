@@ -125,15 +125,19 @@ still has the MariaDB Deployment `db` (or the `mysql-data` volume) migrates it:
 Progress is recorded in the ConfigMap `ledger-postgres-migration`: `phase` (`started`,
 `failed`, `completed` or `skipped`), `copied`, the MariaDB database name and user
 (`source_db_name`, `source_db_username`), the PostgreSQL database and volume a completed copy
-went into (`target`, `target_volume_uid`), the latest backup (`mariadb_backup`) and the one taken
-before the first attempt (`mariadb_backup_pre_migration`). Re-running is safe:
+went into (`target`, `target_volume_uid`), the database and volume a migration Job was started
+on (`copy_target`, `copy_target_volume_uid`), the latest backup (`mariadb_backup`) and the one
+taken before the first attempt (`mariadb_backup_pre_migration`). Re-running is safe:
 
 - After a completed migration nothing is copied again; a leftover `db` Deployment is removed.
   The record counts only for the PostgreSQL database and volume it names: if `postgres-data`
   was deleted (an uninstall) or `LEDGER_DB_*` now name another database, it is ignored and the
   MariaDB data is treated as not migrated, so it is neither left behind nor deleted.
 - After a failed or interrupted copy the migration runs again with `--force`, overwriting the
-  partial PostgreSQL data. Until a copy succeeds, `db-settings` and MariaDB are untouched.
+  partial PostgreSQL data, but only when the record shows that a migration Job ran on this same
+  PostgreSQL database and volume (the Job is started only on an empty database, unless
+  `LEDGER_MIGRATION_FORCE` is set). Otherwise the tables are not known to be a partial copy and
+  the case below applies. Until a copy succeeds, `db-settings` and MariaDB are untouched.
 - If PostgreSQL already holds tables and there is no record of a migration into it, the
   installer stops without changing anything: it cannot tell whether those tables are the
   MariaDB data. Set `LEDGER_MIGRATION_FORCE: true` to replace them with a fresh copy, or
