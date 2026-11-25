@@ -18,6 +18,9 @@ kind: Secret
 metadata:
   labels:
     io.kompose.service: ledger-mariadb-migration
+{% for k, v in ledger_resource_labels.items() %}
+    {{ k }}: {{ v | string | to_json }}
+{% endfor %}
   name: ledger-mariadb-migration
   namespace: {{ LEDGER_NAMESPACE }}
 type: Opaque
@@ -41,6 +44,9 @@ kind: Job
 metadata:
   labels:
     io.kompose.service: ledger-mariadb-migration
+{% for k, v in ledger_resource_labels.items() %}
+    {{ k }}: {{ v | string | to_json }}
+{% endfor %}
   name: ledger-mariadb-migration
   namespace: {{ LEDGER_NAMESPACE }}
 spec:
@@ -52,6 +58,9 @@ spec:
       labels:
         io.kompose.network/ledger-default: "true"
         io.kompose.service: ledger-mariadb-migration
+{% for k, v in ledger_resource_labels.items() %}
+        {{ k }}: {{ v | string | to_json }}
+{% endfor %}
     spec:
 {% if ledger_ocp %}
       serviceAccountName: {{ ledger_service_account_name }}

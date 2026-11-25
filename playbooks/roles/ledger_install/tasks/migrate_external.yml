@@ -23,6 +23,28 @@
 - name: Settle the Ledger variables
   ansible.builtin.include_tasks: prepare.yml
 
+# The manifest is rendered whole, but this path applies only the database objects
+# (postgres_deploy.yml), never the EKS Ingress that needs an ACM certificate. A placeholder keeps
+# the render from failing without making the migration look certificates up in AWS; the install
+# that follows runs platform_eks_pre.yml as usual.
+- name: Use a placeholder certificate for rendering on EKS
+  ansible.builtin.set_fact:
+    certificate: {certificate_arn: ""}
+  when:
+    - k8s_platform == 'eks'
+    - certificate is not defined or certificate.certificate_arn is not defined
+
+# As in main.yml: on an offline k3s cluster the PostgreSQL and migration (ledger-web) images
+# come from the bundle and are pulled with imagePullPolicy Never.
+- name: Import images
+  ansible.builtin.shell:
+    cmd: k3s ctr images import {{ item }}
+  with_fileglob:
+    - "{{ playbook_dir }}/../offline/images/ledger*.tar"
+  when:
+    - k8s_platform == 'k3s'
+    - k8s_offline | bool
+
 - name: Set the migration source
   ansible.builtin.set_fact:
     ledger_migration_source:
@@ -45,10 +67,13 @@
 
 - name: Create Namespace
   kubernetes.core.k8s:
-    name: "{{ LEDGER_NAMESPACE }}"
-    api_version: v1
-    kind: Namespace
     state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: "{{ LEDGER_NAMESPACE }}"
+        labels: "{{ ledger_resource_labels }}"
     context: "{{ ledger_k8s_context | default(omit) }}"
     kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
     verify_ssl: false

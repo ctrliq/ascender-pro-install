@@ -153,10 +153,13 @@ Delete the old volume once you are satisfied: `kubectl -n ledger delete pvc mysq
 Roll back with the `mysqldump` backup, because the migration upgrades the MariaDB schema in
 place and a Ledger release from before PostgreSQL may not accept the upgraded schema.
 
-1. Remove the PostgreSQL-era objects (this deletes the PostgreSQL data):
+1. Remove the PostgreSQL-era objects (this deletes the PostgreSQL data). The MariaDB `db`
+   Deployment is still running after a failed migration; it goes first, because a volume
+   cannot be deleted while a pod mounts it (it is already gone after a successful one):
 
    ```bash
-   kubectl -n ledger delete deployment web parser scheduler mcp
+   kubectl -n ledger delete deployment db --ignore-not-found --wait
+   kubectl -n ledger delete deployment web parser scheduler mcp --ignore-not-found
    kubectl -n ledger delete statefulset postgres
    kubectl -n ledger delete pvc postgres-data mysql-data
    kubectl -n ledger delete configmap ledger-postgres-migration

@@ -90,4 +90,12 @@ LEDGER_MIGRATION_TIMEOUT: 7200
 
 k8s_container_registry: depot.ciq.com/ascender-pro/ascender-ledger-pro-images
 
+# Ownership labels on the objects the migration creates (the namespace when it creates it, the
+# ledger-postgres-migration record, and the migration Secret, Job and pod), per the
+# organisation's labelling policy.
+LEDGER_RESOURCE_LABELS:
+  owner: ciq
+  repo: ascender-pro-install
+ledger_resource_labels: "{{ LEDGER_RESOURCE_LABELS }}"
+
 ledger_service_account_name: ledger-app

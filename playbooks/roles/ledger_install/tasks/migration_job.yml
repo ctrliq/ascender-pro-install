@@ -105,8 +105,10 @@
       metadata:
         name: ledger-postgres-migration
         namespace: "{{ LEDGER_NAMESPACE }}"
+        labels: "{{ ledger_resource_labels }}"
       data:
         phase: "{{ 'completed' if ledger_migration_succeeded | bool else 'failed' }}"
+        copied: "{{ 'true' if ledger_migration_succeeded | bool else 'false' }}"
         source: "{{ ledger_migration_source.host }}:{{ ledger_migration_source.port }}/{{ ledger_migration_source.name }}"
         target: "{{ LEDGER_DB_HOST }}:{{ LEDGER_DB_PORT }}/{{ LEDGER_DB_NAME }}"
         finished_at: "{{ ansible_date_time.iso8601 }}"

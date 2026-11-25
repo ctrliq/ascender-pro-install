@@ -74,22 +74,24 @@
   loop:
     - {api_version: apps/v1, kind: Deployment, name: mcp}
     - {api_version: v1, kind: Service, name: mcp}
-    - {api_version: networking.k8s.io/v1, kind: Ingress, name: ledger-mcp-ingress}
   loop_control:
     label: "{{ item.kind }}/{{ item.name }}"
   when: not (LEDGER_MCP_INSTALL | bool)
 
-- name: Remove the MCP Route when LEDGER_MCP_INSTALL is false
+# Applying the manifest never deletes what it no longer contains, so an MCP endpoint published
+# by an earlier run stays public unless it is removed here: when MCP is off, and also when it is
+# on but LEDGER_MCP_HOSTNAME has been cleared (the server then stays reachable in the cluster).
+- name: Remove the published MCP endpoint when MCP is off or has no hostname
   kubernetes.core.k8s:
     state: absent
-    api_version: route.openshift.io/v1
-    kind: Route
-    name: mcp-route
+    api_version: "{{ 'route.openshift.io/v1' if k8s_platform == 'ocp' else 'networking.k8s.io/v1' }}"
+    kind: "{{ 'Route' if k8s_platform == 'ocp' else 'Ingress' }}"
+    name: "{{ 'mcp-route' if k8s_platform == 'ocp' else 'ledger-mcp-ingress' }}"
     namespace: "{{ LEDGER_NAMESPACE }}"
+    context: "{{ ledger_k8s_context | default(omit) }}"
+    kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
     verify_ssl: false
-  when:
-    - not (LEDGER_MCP_INSTALL | bool)
-    - k8s_platform == 'ocp'
+  when: not (LEDGER_MCP_INSTALL | bool) or LEDGER_MCP_HOSTNAME | default('', true) | length == 0
 
 - name: "Apply ledger manifest for {{ k8s_platform }}"
   kubernetes.core.k8s:

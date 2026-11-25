@@ -1,6 +1,8 @@
 # Runs once Ledger answers on PostgreSQL after a completed migration: removes the
 # MariaDB Deployment and Service of the old install. The MariaDB volume (PVC mysql-data) is
-# kept for rollback unless LEDGER_REMOVE_MARIADB_PVC is true.
+# kept for rollback unless LEDGER_REMOVE_MARIADB_PVC is true, and always kept when no migration
+# Job copied it (a migration that was found already done): then nothing proves its data is in
+# PostgreSQL.
 
 - name: Stop MariaDB
   kubernetes.core.k8s_scale:
@@ -43,7 +45,21 @@
     context: "{{ ledger_k8s_context | default(omit) }}"
     kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
     verify_ssl: false
-  when: LEDGER_REMOVE_MARIADB_PVC | bool
+  when:
+    - LEDGER_REMOVE_MARIADB_PVC | bool
+    - ledger_mariadb_copied | default(false) | bool or ledger_migration_succeeded | default(false) | bool
+
+- name: Explain why the MariaDB volume is kept
+  ansible.builtin.debug:
+    msg: >-
+      LEDGER_REMOVE_MARIADB_PVC is set, but the MariaDB volume (PVC mysql-data) is kept: no
+      migration Job copied it (PostgreSQL already held data when the installer looked), so
+      nothing proves its data is in PostgreSQL. Check, then delete it with
+      kubectl -n {{ LEDGER_NAMESPACE }} delete pvc mysql-data.
+  when:
+    - LEDGER_REMOVE_MARIADB_PVC | bool
+    - ledger_old_db_pvc_present | default(false) | bool
+    - not (ledger_mariadb_copied | default(false) | bool or ledger_migration_succeeded | default(false) | bool)
 
 - ansible.builtin.debug:
     msg: >-

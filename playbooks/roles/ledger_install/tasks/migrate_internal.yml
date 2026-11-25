@@ -62,8 +62,10 @@
       metadata:
         name: ledger-postgres-migration
         namespace: "{{ LEDGER_NAMESPACE }}"
+        labels: "{{ ledger_resource_labels }}"
       data:
         phase: started
+        copied: "false"
         started_at: "{{ ansible_date_time.iso8601 }}"
     context: "{{ ledger_k8s_context | default(omit) }}"
     kubeconfig: "{{ ledger_kubeconfig | default(omit) }}"
