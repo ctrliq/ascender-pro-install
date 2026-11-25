@@ -112,7 +112,7 @@ The following variables will be present after running the script:
 - `tls_crt_path`: TLS Certificate file location on the local installing machine
 - `tls_key_path`: TLS Private Key file location on the local installing machine
 - `GOOGLE_DNS_MANAGED_ZONE`: In Google Cloud DNS the name of an existing hosted DNS zone for your DNS record.
-- `LEDGER_DATA_STORAGE_CLASS`: Required when installing Ledger: a storage class that provides ReadWriteMany volumes, e.g. a Filestore class such as `standard-rwx`. The default GKE storage class cannot, and the installer stops without it. See [the Ledger guide](../../configuration/ledger.md#shared-data-volume-readwritemany).
+- `LEDGER_DATA_STORAGE_CLASS`: Optional storage class for the Ledger scheduler's data volume; the cluster default is fine. See [the Ledger guide](../../configuration/ledger.md#scheduler-data-volume).
 
 ### Run the setup script
 

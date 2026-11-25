@@ -364,7 +364,7 @@ metadata:
   namespace: {{ LEDGER_NAMESPACE }}
 spec:
   accessModes:
-  - {{ ledger_data_access_mode | default(LEDGER_DATA_ACCESS_MODE | default('ReadWriteMany', true)) }}
+  - {{ ledger_data_access_mode | default(LEDGER_DATA_ACCESS_MODE | default('ReadWriteOnce', true)) }}
 {% if LEDGER_DATA_STORAGE_CLASS | default('', true) | length > 0 %}
   storageClassName: {{ LEDGER_DATA_STORAGE_CLASS }}
 {% endif %}
@@ -575,10 +575,10 @@ spec:
 {% endif %}
       containers:
       - env:
-        - name: MYSQL_LEDGER_PASSWORD
-          value: /run/secrets/db-ledger-password
-        - name: DATA_DIR
-          value: /app/data
+        # The advisory data directory belongs to the scheduler; the web pods reach it (air-gap
+        # transfers, the data footprint) through the scheduler's internal API.
+        - name: SCHEDULER_URL
+          value: http://scheduler:8090
         image: {{ ledger_image('ledger-web', LEDGER_WEB_IMAGE) }}
         imagePullPolicy: {{ pull_policy() }}
         name: web
@@ -593,18 +593,12 @@ spec:
           name: admin-password
         - mountPath: /run/secrets/db-settings
           name: db-settings
-        # Shared with ledger-scheduler (advisory data, air-gap bundles).
-        - mountPath: /app/data
-          name: ledger-data
 {{ pull_secrets() }}
       restartPolicy: Always
       volumes:
 {{ secret_volume('db-ledger-password', 'db-ledger-password', 'db-ledger-password') }}
 {{ secret_volume('admin-password', 'admin-password', 'admin-password') }}
 {{ secret_volume('db-settings', 'config.json', 'db-settings') }}
-      - name: ledger-data
-        persistentVolumeClaim:
-          claimName: ledger-data
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -634,7 +628,7 @@ spec:
 {% endif %}
       initContainers:
       # The image ships a snapshot of the advisory data in /app/data, which the ledger-data
-      # volume hides. Copy it onto the volume once (without overwriting anything already there)
+      # volume (mounted by this pod only) hides. Copy it onto the volume once (without overwriting anything already there)
       # and leave a marker so later restarts and upgrades do not copy again.
       - name: seed-data
         image: {{ ledger_image('ledger-scheduler', LEDGER_SCHEDULER_IMAGE) }}
@@ -660,6 +654,18 @@ spec:
         image: {{ ledger_image('ledger-scheduler', LEDGER_SCHEDULER_IMAGE) }}
         imagePullPolicy: {{ pull_policy() }}
         name: scheduler
+        ports:
+        # Internal API for the web pods (air-gap transfers, data footprint). Every call but
+        # /healthz needs a token both sides derive from the database password.
+        - containerPort: 8090
+          name: internal-api
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: internal-api
+          periodSeconds: 10
+          failureThreshold: 3
         resources: {}
         volumeMounts:
         - mountPath: /run/secrets/db-ledger-password
@@ -676,6 +682,23 @@ spec:
       - name: ledger-data
         persistentVolumeClaim:
           claimName: ledger-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    io.kompose.service: scheduler
+  name: scheduler
+  namespace: {{ LEDGER_NAMESPACE }}
+spec:
+  type: ClusterIP
+  ports:
+  - name: internal-api
+    port: 8090
+    targetPort: internal-api
+    protocol: TCP
+  selector:
+    io.kompose.service: scheduler
 {% if ledger_mcp_enabled %}
 ---
 apiVersion: v1

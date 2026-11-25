@@ -1,11 +1,11 @@
-# Ledger: PostgreSQL, Shared Storage, MCP and the MariaDB Migration
+# Ledger: PostgreSQL, Scheduler, MCP and the MariaDB Migration
 
 This guide covers what the installer deploys for Ledger, the storage it needs, and how an
 existing Ledger that still runs on MariaDB is moved to PostgreSQL.
 
 - [What gets deployed](#what-gets-deployed)
 - [Database](#database)
-- [Shared data volume (ReadWriteMany)](#shared-data-volume-readwritemany)
+- [Scheduler data volume](#scheduler-data-volume)
 - [MCP server](#mcp-server)
 - [Upgrading an install that runs MariaDB](#upgrading-an-install-that-runs-mariadb)
 - [Rolling back to MariaDB](#rolling-back-to-mariadb)
@@ -21,11 +21,11 @@ Everything lives in `LEDGER_NAMESPACE` (default `ledger`). The manifest is writt
 | ------ | ---- | ----- |
 | `web`, `web-svc` | Deployment, Service | Ledger UI and REST API. `ledger_web_replicas` pods. |
 | `parser`, `parser` | Deployment, Service | Receives Ascender's job events on port 5000. |
-| `scheduler` | Deployment | Advisory downloads and background jobs. Always 1 replica, `Recreate` strategy. |
+| `scheduler` | Deployment, Service | Advisory downloads and background jobs. Always 1 replica, `Recreate` strategy. The Service carries its internal API (port 8090) inside the namespace for the web pods; every call but `/healthz` needs a token. |
 | `mcp` | Deployment, Service | Optional read-only MCP server on port 8085 (`LEDGER_MCP_INSTALL`). |
 | `postgres` | StatefulSet, Service | Internal PostgreSQL 18, port 5432. Not deployed for an external database. |
 | `postgres-data` | PVC (ReadWriteOnce) | PostgreSQL data, `LEDGER_PVC_SIZE_GB` / `LEDGER_PVC_STORAGE_CLASS`. |
-| `ledger-data` | PVC (ReadWriteMany) | `/app/data` of web and scheduler, `LEDGER_DATA_PVC_SIZE_GB` / `LEDGER_DATA_STORAGE_CLASS`. |
+| `ledger-data` | PVC (ReadWriteOnce) | The scheduler's `/app/data`, `LEDGER_DATA_PVC_SIZE_GB` / `LEDGER_DATA_STORAGE_CLASS`. |
 | `db-settings`, `db-ledger-password`, `admin-password` | Secrets | Database connection (`config.json`), database password, admin password. |
 | `ledger-web-ingress` / `web-route` | Ingress / Route | `LEDGER_HOSTNAME`, per platform as before. |
 | `ledger-mcp-ingress` / `mcp-route` | Ingress / Route | Only when `LEDGER_MCP_HOSTNAME` is set. |
@@ -63,39 +63,28 @@ PostgreSQL 18 is what Ledger is tested with. `LEDGER_DB_SSLMODE` sets the libpq 
 if an external `LEDGER_DB_HOST` is on port 3306: move that data with
 [the external migration playbook](#migrating-an-external-mariadb-database) first.
 
-## Shared data volume (ReadWriteMany)
+## Scheduler data volume
 
-The web and scheduler pods share `/app/data` (advisory data, air-gap bundles), so the
-`ledger-data` volume must be mountable from more than one node at once: **ReadWriteMany**. Most
-default storage classes are block storage and cannot do that; the claim then stays `Pending` and
-the web and scheduler pods never start.
+The advisory data (the downloaded vendor advisories and CVE records, and the staging area of
+air-gap bundles) lives in the scheduler's `/app/data`, on the `ledger-data` volume. Only the
+scheduler pod mounts it. The web pods reach it through the scheduler's internal API (the
+`scheduler` Service, port 8090) for the air-gap Download and Import and for the on-disk figures
+on the Advisories page; the two services authenticate each other with a token derived from the
+database password they share, so no extra secret is involved.
 
-Set `LEDGER_DATA_STORAGE_CLASS` to an RWX-capable class:
+Because a single pod uses the volume, it is **ReadWriteOnce** and the cluster's default storage
+class works everywhere, including k3s `local-path`. The web Deployment can be scaled to any number
+of replicas on any nodes without shared storage.
 
-| Platform | Default class | RWX option |
-| -------- | ------------- | ---------- |
-| AKS | `managed-csi` (disk, RWO) | `azurefile-csi` / `azurefile-csi-premium` |
-| EKS | `gp2`/`gp3` (EBS, RWO) | Amazon EFS (`efs.csi.aws.com`), e.g. a class named `efs-sc` |
-| GKE | `standard-rwo` (PD, RWO) | Filestore CSI, e.g. `standard-rwx` |
-| OCP | varies | ODF CephFS (`ocs-storagecluster-cephfs`), NFS |
-| RKE2, DKP | varies | Longhorn (RWX), NFS subdir provisioner, CephFS |
-| TKGI | vSphere CNS (RWO) | vSAN file services, NFS |
-| k3s | `local-path` (RWO) | not needed: see below |
-
-- On **AKS, EKS and GKE** the installer stops before changing anything when
-  `LEDGER_DATA_STORAGE_CLASS` is unset. On the other platforms it prints a warning and uses the
-  cluster default. It also stops when a configured storage class does not exist.
-- On **k3s** (single node) the volume defaults to `ReadWriteOnce` on `local-path`, which works
-  because every pod is on the same node. Set `LEDGER_DATA_ACCESS_MODE: ReadWriteMany` together
-  with `LEDGER_DATA_STORAGE_CLASS` on a multi-node k3s.
-- `LEDGER_DATA_ACCESS_MODE: ReadWriteOnce` can be forced on any platform, but only works while
-  all web pods and the scheduler land on one node.
+- `LEDGER_DATA_STORAGE_CLASS` picks another class; empty means the cluster default. The installer
+  stops when a configured class does not exist.
+- `LEDGER_DATA_ACCESS_MODE` accepts `ReadWriteMany` for clusters that prefer it; it is not needed.
 - The access mode and storage class of an existing claim cannot be changed. To move to another
-  class, scale `web` and `scheduler` to 0, delete the `ledger-data` PVC and re-run the installer;
-  the advisory data is re-seeded from the scheduler image and re-downloaded.
+  class, scale `scheduler` to 0, delete the `ledger-data` PVC and re-run the installer; the
+  advisory data is re-seeded from the scheduler image and re-downloaded.
 - The scheduler image carries a snapshot of the advisory data. An init container copies it onto
   the volume once, without overwriting files already there, and leaves a `.installer-seeded`
-  marker so it does not copy again. The pods run as root, so an NFS export
+  marker so it does not copy again. The pod runs as root, so a volume backed by an NFS export
   with `root_squash` must allow those writes (or use `no_root_squash` / an anonymous UID that
   owns the export).
 
@@ -256,11 +245,16 @@ target's values when they are the same. The command exits 0 on success.
 
 ## Troubleshooting
 
-- **`ledger-data` stays Pending**: the storage class cannot provide ReadWriteMany volumes
-  (`kubectl -n ledger describe pvc ledger-data`). See
-  [Shared data volume](#shared-data-volume-readwritemany).
-- **The scheduler's `seed-data` init container fails** with permission errors: the RWX volume
-  does not let root write (NFS `root_squash`).
+- **`ledger-data` stays Pending**: the storage class cannot provide a volume in the requested
+  access mode (`kubectl -n ledger describe pvc ledger-data`). See
+  [Scheduler data volume](#scheduler-data-volume).
+- **The scheduler's `seed-data` init container fails** with permission errors: the volume does
+  not let root write (NFS `root_squash`).
+- **The Advisories page shows no on-disk figures, or Download/Import fail at once**: the web pods
+  cannot reach the scheduler's internal API. Check that the `scheduler` pod is Ready
+  (`kubectl -n ledger get pods`) and read `kubectl -n ledger logs deploy/web` for `[airgap]`
+  lines. "refused the internal API token" means the two Deployments see different database
+  passwords; re-run the installer so both use the current `db-settings` Secret.
 - **Migration Job failed**: read `<tmp_dir>/ledger-mariadb-migration.<timestamp>.log` or
   `kubectl -n ledger logs job/ledger-mariadb-migration`, fix the cause, re-run the installer.
   `LEDGER_MIGRATION_TIMEOUT` (seconds, default 7200) bounds the Job.

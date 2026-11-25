@@ -70,13 +70,11 @@ LEDGER_DB_SSLMODE: ""
 LEDGER_PVC_SIZE_GB: 10
 LEDGER_PVC_STORAGE_CLASS: ""
 
-# Volume shared by ledger-web and ledger-scheduler at /app/data (PVC "ledger-data").
-# It must be ReadWriteMany unless every Ledger pod runs on one node: see
-# docs/configuration/ledger.md. An empty storage class uses the cluster default.
+# The scheduler's advisory data volume at /app/data (PVC "ledger-data"). Only the scheduler
+# mounts it, so any storage class works. An empty storage class uses the cluster default.
 LEDGER_DATA_PVC_SIZE_GB: 10
 LEDGER_DATA_STORAGE_CLASS: ""
-# Empty: ReadWriteMany, except ReadWriteOnce on k3s (a single-node cluster) when no
-# LEDGER_DATA_STORAGE_CLASS is set.
+# Empty: ReadWriteOnce. ReadWriteMany is accepted but not needed.
 LEDGER_DATA_ACCESS_MODE: ""
 
 # MariaDB -> PostgreSQL migration of an existing install (see docs/configuration/ledger.md)

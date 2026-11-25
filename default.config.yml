@@ -299,15 +299,13 @@ LEDGER_ADMIN_PASSWORD: "myadminpassword"
     # keys are configured, Ledger derives the keys that encrypt stored settings from it.
 LEDGER_DB_PASSWORD: "mydbpassword"
 
-    # Volume shared by the Ledger web and scheduler pods at /app/data (advisory data,
-    # air-gap bundles): PVC "ledger-data". It must be ReadWriteMany (RWX) when the pods
-    # can run on different nodes, so LEDGER_DATA_STORAGE_CLASS must name an RWX-capable
-    # class (NFS, CephFS, Azure Files, Amazon EFS, GCP Filestore, vSAN file services, ...).
-    # The installer stops on AKS, EKS and GKE when it is not set, since their default classes
-    # are block storage (RWO only). On k3s (single node) the default is ReadWriteOnce.
+    # The Ledger scheduler's advisory data volume at /app/data (advisory files, air-gap
+    # bundles): PVC "ledger-data". Only the scheduler pod mounts it, so the cluster's default
+    # storage class (ReadWriteOnce block storage, k3s local-path, ...) is fine. Leave the
+    # storage class empty for the cluster default.
 #LEDGER_DATA_STORAGE_CLASS: ""
 #LEDGER_DATA_PVC_SIZE_GB: 10
-    # ReadWriteMany or ReadWriteOnce; leave unset for the default described above
+    # ReadWriteOnce (default) or ReadWriteMany
 #LEDGER_DATA_ACCESS_MODE: ""
 
     # The read-only Ledger MCP (Model Context Protocol) server for AI assistants. It holds no

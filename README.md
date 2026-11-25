@@ -63,7 +63,7 @@ Two files drive every install, both at the repository root:
 The variables that select which components get deployed:
 
 - `k8s_platform`: `k3s`, `eks`, `aks`, `gke`, `rke2`, `dkp`, `ocp`, or `tkgi`
-- `LEDGER_INSTALL`: whether Ledger is deployed alongside Ascender. Ledger runs on PostgreSQL and needs a ReadWriteMany storage class (`LEDGER_DATA_STORAGE_CLASS`); existing MariaDB installs are migrated on upgrade. See [docs/configuration/ledger.md](./docs/configuration/ledger.md)
+- `LEDGER_INSTALL`: whether Ledger is deployed alongside Ascender. Ledger runs on PostgreSQL; existing MariaDB installs are migrated on upgrade. See [docs/configuration/ledger.md](./docs/configuration/ledger.md)
 - `PROXY_INSTALL`: whether the Galaxy Proxy is deployed
 - `REAQT_INSTALL`: whether Reaqt is deployed, with `REAQT_HOSTNAME` required
 - `REGISTRY_INSTALL`: whether the Ascender Registry is deployed

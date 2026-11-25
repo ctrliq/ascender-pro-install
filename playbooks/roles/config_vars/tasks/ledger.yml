@@ -21,17 +21,11 @@
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'LEDGER_HOSTNAME': ledger_hostname_value}, recursive=True) }}"
 
-    - name: "Storage class for the Ledger data volume shared by web and scheduler; must support ReadWriteMany (blank: cluster default{{ ', which is NOT RWX-capable on ' ~ (config_data.k8s_platform | upper) if config_data.k8s_platform | default('') in ['aks', 'eks', 'gke'] else '' }})"
+    - name: "Storage class for the Ledger scheduler's data volume (blank: cluster default)"
       prompt:
         prompt: "Enter your selection [{{ config_data.LEDGER_DATA_STORAGE_CLASS | default('', true) }}]: "
       register: config_vars_ledger_data_storage_class
-      until: >-
-        config_data.k8s_platform | default('') not in ['aks', 'eks', 'gke']
-        or (config_vars_ledger_data_storage_class.user_input | default('', true) | trim
-            | default(config_data.LEDGER_DATA_STORAGE_CLASS | default('', true), true)) | length > 0
-      retries: "{{ config_vars_prompt_retries }}"
-      delay: "{{ config_vars_prompt_delay }}"
-      when: config_data.k8s_platform | default('') != 'k3s' or CONFIG_ADVANCED | bool
+      when: CONFIG_ADVANCED | bool
 
     - name: Save the Ledger data storage class
       vars:
@@ -39,7 +33,7 @@
         ledger_data_sc_value: "{{ config_vars_ledger_data_storage_class.user_input | default('', true) | trim | default(ledger_data_sc_default, true) }}"
       ansible.builtin.set_fact:
         config_data: "{{ config_data | combine({'LEDGER_DATA_STORAGE_CLASS': ledger_data_sc_value}, recursive=True) }}"
-      when: config_data.k8s_platform | default('') != 'k3s' or CONFIG_ADVANCED | bool
+      when: CONFIG_ADVANCED | bool
 
     - name: "Size in GB of the Ledger data volume"
       prompt:

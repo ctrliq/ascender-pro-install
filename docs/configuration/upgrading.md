@@ -59,10 +59,9 @@ Downtime during an upgrade is typically less than a few minutes, as the new cont
 
 Ledger is upgraded the same way: set `LEDGER_VERSION` and re-run the installer. Ledger now runs on
 PostgreSQL instead of MariaDB, and the first run of this installer on an existing Ledger migrates
-its MariaDB database automatically, after saving a `mysqldump` backup to `tmp_dir`. Ledger also
-needs a ReadWriteMany storage class for its new shared data volume (`LEDGER_DATA_STORAGE_CLASS`;
-required on AKS, EKS and GKE). Read [the Ledger guide](ledger.md) before upgrading: it covers
-the storage requirement, the downtime, re-runs and rollback.
+its MariaDB database automatically, after saving a `mysqldump` backup to `tmp_dir`. Read
+[the Ledger guide](ledger.md) before upgrading: it covers the new scheduler and its data volume,
+the downtime, re-runs and rollback.
 
 ## Post-Upgrade Validation
 

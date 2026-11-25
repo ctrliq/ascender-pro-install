@@ -84,7 +84,7 @@ The following variables will be present after running the script:
 - `USE_ROUTE_53`: Determines whether to use Route53's Domain Management, or a third-party service such as Cloudflare, or GoDaddy. If this value is set to false, you will have to manually set a CNAME record for `ASCENDER_HOSTNAME` and `LEDGER_HOSTNAME` to point to the AWS Loadbalancers that the installer creates.
 - `ASCENDER_HOSTNAME`: The DNS resolvable hostname for Ascender service.
 - `LEDGER_HOSTNAME`: The DNS resolvable hostname for Ledger service.
-- `LEDGER_DATA_STORAGE_CLASS`: Required when installing Ledger: a storage class that provides ReadWriteMany volumes, e.g. an Amazon EFS storage class (EFS CSI driver), such as `efs-sc`. The default EKS storage class cannot, and the installer stops without it. See [the Ledger guide](../../configuration/ledger.md#shared-data-volume-readwritemany).
+- `LEDGER_DATA_STORAGE_CLASS`: Optional storage class for the Ledger scheduler's data volume; the cluster default is fine. See [the Ledger guide](../../configuration/ledger.md#scheduler-data-volume).
 - `ASCENDER_DOMAIN`: The Hosted Zone/Domain for all Ascender components. 
   - this is a SINGLE domain for both Ascender AND Ledger.
 - `EKS_USER`: If desired, this indicates an AWS IAM user that can be set up in order to have minimum permissions to set up a new EKS cluster and install Ascender and its associated components.

@@ -47,60 +47,21 @@
     - not (ledger_db_internal | bool)
     - (LEDGER_DB_PORT | string | trim) == '3306'
 
-# --- Shared data volume -------------------------------------------------------
+# --- Scheduler data volume -----------------------------------------------------
 
-- name: Work out the access mode of the shared ledger-data volume
+# Only the scheduler mounts ledger-data (the web pods reach the advisory data through the
+# scheduler's internal API), and there is exactly one scheduler, so ReadWriteOnce works on every
+# platform's default storage class. ReadWriteMany is accepted for clusters that prefer it.
+- name: Work out the access mode of the ledger-data volume
   ansible.builtin.set_fact:
-    ledger_data_access_mode: >-
-      {{ LEDGER_DATA_ACCESS_MODE if (LEDGER_DATA_ACCESS_MODE | default('', true) | length > 0)
-         else ('ReadWriteOnce' if (k8s_platform == 'k3s' and LEDGER_DATA_STORAGE_CLASS | default('', true) | length == 0)
-         else 'ReadWriteMany') }}
+    ledger_data_access_mode: "{{ LEDGER_DATA_ACCESS_MODE | default('', true) or 'ReadWriteOnce' }}"
 
 - name: Check LEDGER_DATA_ACCESS_MODE
   ansible.builtin.assert:
     that:
       - ledger_data_access_mode in ['ReadWriteMany', 'ReadWriteOnce']
-    fail_msg: "LEDGER_DATA_ACCESS_MODE must be ReadWriteMany or ReadWriteOnce, not {{ ledger_data_access_mode }}"
+    fail_msg: "LEDGER_DATA_ACCESS_MODE must be ReadWriteOnce or ReadWriteMany, not {{ ledger_data_access_mode }}"
     quiet: true
-
-- name: Require a ReadWriteMany storage class where the cluster default cannot provide one
-  vars:
-    ledger_rwx_hint:
-      aks: "the built-in azurefile-csi (or azurefile-csi-premium) storage class"
-      eks: "an Amazon EFS storage class (install the EFS CSI driver, e.g. a class named efs-sc)"
-      gke: "a Filestore storage class such as standard-rwx (enable the Filestore CSI driver)"
-  ansible.builtin.fail:
-    msg: >-
-      Ledger's web and scheduler pods share the ledger-data volume, which must be ReadWriteMany.
-      The default storage class on {{ k8s_platform | upper }} only provides ReadWriteOnce block
-      volumes, so set LEDGER_DATA_STORAGE_CLASS to {{ ledger_rwx_hint[k8s_platform] }}.
-      See docs/configuration/ledger.md.
-  when:
-    - ledger_data_access_mode == 'ReadWriteMany'
-    - LEDGER_DATA_STORAGE_CLASS | default('', true) | length == 0
-    - k8s_platform in ['aks', 'eks', 'gke']
-
-- name: Warn that the cluster default storage class must support ReadWriteMany
-  ansible.builtin.debug:
-    msg: >-
-      WARNING: LEDGER_DATA_STORAGE_CLASS is not set, so the ledger-data volume (ReadWriteMany) uses
-      the cluster's default storage class. If that class cannot provide ReadWriteMany volumes
-      (most block storage cannot), the volume stays Pending and the web and scheduler pods never
-      start. Set LEDGER_DATA_STORAGE_CLASS to an RWX-capable class (NFS, CephFS, vSAN file
-      services, ...) to be sure.
-  when:
-    - ledger_data_access_mode == 'ReadWriteMany'
-    - LEDGER_DATA_STORAGE_CLASS | default('', true) | length == 0
-    - k8s_platform not in ['aks', 'eks', 'gke']
-
-- name: Warn about a ReadWriteOnce data volume on a multi-node platform
-  ansible.builtin.debug:
-    msg: >-
-      WARNING: the ledger-data volume is ReadWriteOnce. That only works while every web pod and
-      the scheduler pod run on the same node.
-  when:
-    - ledger_data_access_mode == 'ReadWriteOnce'
-    - k8s_platform != 'k3s'
 
 - name: Look up the configured storage classes
   kubernetes.core.k8s_info:

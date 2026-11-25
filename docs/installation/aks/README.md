@@ -125,7 +125,7 @@ The following variables will be present after running the script:
 - `USE_AZURE_DNS`: Determines whether to use Route53's Domain Management, or a third-party service such as Cloudflare, or GoDaddy. If this value is set to false, you will have to manually set a CNAME record for `ASCENDER_HOSTNAME` and `LEDGER_HOSTNAME` to point to the AWS Loadbalancers that the installer creates.
 - `ASCENDER_HOSTNAME`: The DNS resolvable hostname for Ascender service.
 - `LEDGER_HOSTNAME`: The DNS resolvable hostname for Ascender service.
-- `LEDGER_DATA_STORAGE_CLASS`: Required when installing Ledger: a storage class that provides ReadWriteMany volumes, e.g. `azurefile-csi`. The default AKS storage class cannot, and the installer stops without it. See [the Ledger guide](../../configuration/ledger.md#shared-data-volume-readwritemany).
+- `LEDGER_DATA_STORAGE_CLASS`: Optional storage class for the Ledger scheduler's data volume; the cluster default is fine. See [the Ledger guide](../../configuration/ledger.md#scheduler-data-volume).
 - `ASCENDER_DOMAIN`: The Hosted Zone/Domain for all Ascender components. 
   - this is a SINGLE domain for both Ascender AND Ledger.
 - `USE_AZURE_DNS`: Determines whether to use Azure DNS Domain Management, or a third-party service such as Cloudflare, or GoDaddy. If this value is set to false, you will have to manually set a CNAME record for `ASCENDER_HOSTNAME` and `LEDGER_HOSTNAME` to point to the AWS Loadbalancers that the installer creates.
